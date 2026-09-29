@@ -77,7 +77,7 @@ const CANONICAL_AGENTS = [
 ];
 
 export default function ConnectorsPage() {
-  const { notify } = useApp();
+  const { notify, me, switchUser } = useApp();
   const [tab, setTab] = useState<"connectors" | "skills" | "demo" | "governance">("connectors");
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [skills, setSkills] = useState<AgentSkill[]>([]);
@@ -521,6 +521,30 @@ export default function ConnectorsPage() {
       ) : tab === "skills" ? (
         /* ================= SKILLS LIBRARY TAB ================= */
         <div className="space-y-6">
+          {me?.is_guest && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40">
+              <div className="flex items-center gap-3">
+                <Globe2 className="h-5 w-5 text-amber-600 shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                    Guest Mode: Internal skills execution requires employee credentials.
+                  </p>
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                    Switch to an employee persona like Priya Reddy (Engineering Lead) to run full skill tests.
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => switchUser("priya.reddy@novatech.demo")}
+                className="shrink-0 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                Switch to Priya (Lead)
+              </Button>
+            </div>
+          )}
+
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -645,6 +669,30 @@ export default function ConnectorsPage() {
       ) : tab === "demo" ? (
         /* ================= 1-CLICK LIVE DEMO TAB ================= */
         <div className="space-y-8">
+          {me?.is_guest && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40">
+              <div className="flex items-center gap-3">
+                <Globe2 className="h-5 w-5 text-amber-600 shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                    Guest Mode: Cross-connector live assessments require employee authorization.
+                  </p>
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                    Switch to Priya Reddy (Engineering Lead) to execute the end-to-end multi-system assessment.
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => switchUser("priya.reddy@novatech.demo")}
+                className="shrink-0 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                Switch to Priya (Lead)
+              </Button>
+            </div>
+          )}
+
           {/* Hero Banner */}
           <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 p-6 text-white shadow-xl">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
@@ -767,11 +815,11 @@ export default function ConnectorsPage() {
                   <div className="flex items-center gap-2 mb-4">
                     <ShieldAlert className="h-5 w-5 text-rose-600" />
                     <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                      Identified Vulnerabilities & Risks ({demoResult.findings.length})
+                      Identified Vulnerabilities & Risks ({(demoResult.findings || []).length})
                     </h3>
                   </div>
                   <div className="space-y-3">
-                    {demoResult.findings.map((f) => (
+                    {(demoResult.findings || []).map((f: any) => (
                       <div
                         key={f.id}
                         className="rounded-xl border border-rose-200 bg-rose-50/50 p-4 text-xs dark:border-rose-950 dark:bg-rose-950/20"
@@ -781,11 +829,11 @@ export default function ConnectorsPage() {
                             [{f.severity}] {f.title}
                           </span>
                           <span className="rounded bg-rose-100 px-2 py-0.5 font-semibold text-rose-800 dark:bg-rose-900 dark:text-rose-200">
-                            {f.category}
+                            {f.category || f.cwe?.split(":")[0] || "Security"}
                           </span>
                         </div>
                         <p className="mt-1 text-slate-700 dark:text-slate-300">
-                          {f.description}
+                          {f.description || f.explanation || ""}
                         </p>
                         <div className="mt-2 rounded bg-slate-900 p-2 font-mono text-[11px] text-rose-300">
                           Evidence: {f.evidence}
@@ -804,7 +852,7 @@ export default function ConnectorsPage() {
                     </h3>
                   </div>
                   <div className="space-y-3">
-                    {demoResult.jira_issues.map((j) => (
+                    {(demoResult.jira_issues || []).map((j: any) => (
                       <div
                         key={j.key}
                         className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-800 dark:bg-slate-800/40"
@@ -915,16 +963,16 @@ export default function ConnectorsPage() {
                   <div className="flex items-center gap-2">
                     <FileCheck2 className="h-5 w-5 text-indigo-600" />
                     <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                      {demoResult.report.title}
+                      {demoResult.report?.title || (demoResult.report as any)?.report_title || "Security Assessment & Engineering Status Report"}
                     </h3>
                   </div>
                   <span className="text-xs font-medium text-slate-500">
-                    Sources: {demoResult.report.sources_used.join(" · ")}
+                    Sources: {(demoResult.report?.sources_used || []).join(" · ")}
                   </span>
                 </div>
 
                 <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-300 mb-4 bg-slate-50 p-3 rounded-lg dark:bg-slate-800/50">
-                  {demoResult.report.executive_summary}
+                  {demoResult.report?.executive_summary}
                 </p>
 
                 <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
@@ -941,12 +989,20 @@ export default function ConnectorsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {demoResult.report.evidence_matrix.map((em, idx) => (
+                      {((demoResult.report?.evidence_matrix && demoResult.report.evidence_matrix.length > 0)
+                        ? demoResult.report.evidence_matrix
+                        : ((demoResult.report as any)?.evidence_table || []).map((et: any) => ({
+                            system: et.Source || et.system || "System",
+                            record: et.Reference || et.record || "Ref",
+                            classification: "INTERNAL",
+                            status: et.Status || et.status || "OK"
+                          }))
+                      ).map((em: any, idx: number) => (
                         <tr key={idx} className="py-2">
                           <td className="py-2 font-semibold text-slate-900 dark:text-white">{em.system}</td>
                           <td className="py-2 font-mono text-slate-600 dark:text-slate-400">{em.record}</td>
                           <td className="py-2">
-                            <ClassBadge level={em.classification} />
+                            <ClassBadge level={em.classification || "INTERNAL"} />
                           </td>
                           <td className="py-2 text-slate-700 dark:text-slate-300">{em.status}</td>
                         </tr>
@@ -959,7 +1015,7 @@ export default function ConnectorsPage() {
                   Actionable Next Steps
                 </h4>
                 <ul className="list-disc pl-5 text-xs text-slate-700 dark:text-slate-300 space-y-1">
-                  {demoResult.report.recommendations.map((rec, idx) => (
+                  {(demoResult.report?.recommendations || []).map((rec: string, idx: number) => (
                     <li key={idx}>{rec}</li>
                   ))}
                 </ul>

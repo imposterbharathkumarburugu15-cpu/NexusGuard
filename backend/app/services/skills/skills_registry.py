@@ -112,7 +112,9 @@ class SkillsRegistry:
                     "id": "SEC-VULN-01",
                     "title": "Token Expiration Bypass in Fast Concurrent Session Refresh",
                     "severity": "HIGH",
+                    "category": "Session Security",
                     "cwe": "CWE-384: Session Fixation / CWE-613: Insufficient Session Expiration",
+                    "description": "Refresh token validation does not atomically revoke prior refresh tokens before issuing new bearer tokens. An attacker with a recently intercepted refresh token can race against legitimate token issuance to obtain a valid session.",
                     "affected_file": "backend/app/routers/auth.py",
                     "line": 84,
                     "evidence": "Refresh token validation does not atomically revoke prior refresh tokens before issuing new bearer tokens.",
@@ -126,7 +128,9 @@ class SkillsRegistry:
                     "id": "SEC-VULN-02",
                     "title": "Database Connection Pool Starvation Under Cancelled Tasks",
                     "severity": "MEDIUM",
+                    "category": "Resource Management",
                     "cwe": "CWE-400: Uncontrolled Resource Consumption",
+                    "description": "Async cancellation in long-running tool loops did not execute finally block db.close() in edge cases, risking connection starvation under heavy concurrency.",
                     "affected_file": "backend/app/services/agentic.py",
                     "line": 42,
                     "evidence": "Async cancellation in long-running tool loops did not execute finally block db.close() in edge cases.",
@@ -167,19 +171,29 @@ class SkillsRegistry:
     def run_report_generation(db: Session, principal: Principal, params: dict[str, Any]) -> dict[str, Any]:
         report_type = params.get("report_type", "Security Assessment & Engineering Status Report")
         timeframe = params.get("timeframe", "Current Sprint (Sprint 44)")
+        title = f"NovaTech Solutions — {report_type}"
 
         return {
             "skill": "Report Generation",
-            "report_title": f"NovaTech Solutions — {report_type}",
+            "title": title,
+            "report_title": title,
             "generated_at": "2026-09-19T17:30:00Z",
             "timeframe": timeframe,
             "author": principal.full_name,
+            "findings_count": 2,
             "executive_summary": (
                 "Comprehensive evaluation of the NovaTech enterprise agent platform across connected systems. "
                 "The authentication service exhibits high security robustness, with one identified token rotation "
                 "vulnerability (NOVA-421) currently being mitigated via PR #142. Recent engineering discussions "
                 "in Microsoft Teams (#security-eng) confirm that atomic blacklisting will be deployed in Friday's release."
             ),
+            "evidence_matrix": [
+                {"system": "GitHub", "record": "PR #142 (fix/jwt-expiry-validation)", "classification": "INTERNAL", "status": "Open / Review"},
+                {"system": "Jira", "record": "NOVA-421 (Auth Hardening)", "classification": "INTERNAL", "status": "In Progress (High)"},
+                {"system": "Jira", "record": "NOVA-412 (Connection Pool)", "classification": "CONFIDENTIAL", "status": "Blocker (Critical)"},
+                {"system": "Teams", "record": "#security-eng (Message 101)", "classification": "INTERNAL", "status": "Discussed & Mitigated"},
+                {"system": "Outlook", "record": "Q3 Enterprise Security Review", "classification": "CONFIDENTIAL", "status": "Action Items Assigned"},
+            ],
             "evidence_table": [
                 {"Source": "GitHub", "Reference": "PR #142 (fix/jwt-expiry-validation)", "Status": "Open / Review", "Owner": "Alex Chen"},
                 {"Source": "Jira", "Reference": "NOVA-421 (Auth Hardening)", "Status": "In Progress (High)", "Owner": "Alex Chen"},
