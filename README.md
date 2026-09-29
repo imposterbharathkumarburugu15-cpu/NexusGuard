@@ -251,3 +251,14 @@ python -m app.db.reset_demo_state
 2. **Single SQLite Database in Default Mode:** Both business data and local memory banks reside in `novatech_demo.db`. For enterprise concurrency, point `DATABASE_URL` to PostgreSQL with `pgvector`.
 3. **Local Embedding Warmup:** Cold-start embedding initialization on CPU can take ~500ms on first query before in-memory caching takes effect.
 4. **Offline Paraphrase Scope:** Without an OpenAI API key, query understanding relies on regex intent parsing, synonym maps, and extractive evidence composition rather than generative paraphrasing.
+
+---
+
+## 10. Technical Documentation Index
+
+| Document | Path | Description |
+|---|---|---|
+| **Final Technical Report** | [`docs/final-report.md`](docs/final-report.md) | Comprehensive 17-section system architecture, lifecycle, security, and connector specification. |
+| **Live Demo Script** | [`docs/demo-script.md`](docs/demo-script.md) | Step-by-step operator guide for presenting the Hindsight Engineering Code Review Agent. |
+| **Judge & Evaluator Q&A** | [`docs/judge-qa.md`](docs/judge-qa.md) | In-depth technical answers to 22 critical evaluator and architectural questions. |
+| **Technical Article** | [`docs/article.md`](docs/article.md) | Deep dive into "Authorization Before Intelligence" and persistent memory loops. |
