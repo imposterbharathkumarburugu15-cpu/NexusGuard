@@ -19,6 +19,8 @@ const AGENT_TONE: Record<string, string> = {
   "Analytics Agent": "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30",
   "Workflow Agent": "bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30",
   "Productivity Agent": "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30",
+  "Security Analysis Agent": "bg-red-50 text-red-700 ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/30",
+  "Engineering Code Review Agent": "bg-purple-50 text-purple-700 ring-purple-200 dark:bg-purple-500/10 dark:text-purple-300 dark:ring-purple-500/30",
 };
 
 export const AgentChip = ({ name }: { name: string }) => (
@@ -102,7 +104,9 @@ export function ActionCard({ action, onChange }: { action: Action; onChange: (a:
     <div className={cx("overflow-hidden rounded-xl border shadow-card", pending ? "border-brand-200 dark:border-brand-500/40" : "border-slate-200 dark:border-slate-800")}>
       <div className={cx("flex items-center gap-2 px-4 py-2.5 text-sm", pending ? "bg-brand-50 dark:bg-brand-500/10" : "bg-slate-50 dark:bg-slate-900")}>
         <Bot className="h-4 w-4 text-brand-600" />
-        <span className="font-semibold text-slate-800 dark:text-slate-100">{pending ? "Confirmation required" : action.preview.title}</span>
+        <span className="font-semibold text-slate-800 dark:text-slate-100">
+          {pending ? (action.tool === "propose_code_fix" ? "Human Approval Required · Code Modification" : "Confirmation required") : action.preview.title}
+        </span>
         <span className="ml-auto flex items-center gap-2"><RiskBadge risk={action.risk} />
           {action.status === "executed" && <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600"><Check className="h-3.5 w-3.5" />Done</span>}
           {action.status === "cancelled" && <span className="text-xs font-semibold text-slate-500">Cancelled</span>}
@@ -112,7 +116,18 @@ export function ActionCard({ action, onChange }: { action: Action; onChange: (a:
       <div className="bg-white px-4 py-3 dark:bg-slate-950/40">
         <dl className="grid grid-cols-1 gap-x-3 gap-y-1.5 text-sm sm:grid-cols-[140px_1fr]">
           {(action.preview.fields ?? []).filter((f) => !(editable && f[0] === "Subject")).map(([k, v]) => (
-            <div key={k} className="contents"><dt className="text-slate-500">{k}</dt><dd className="font-medium text-slate-800 dark:text-slate-200">{v}</dd></div>
+            <div key={k} className="contents">
+              <dt className="text-slate-500">{k}</dt>
+              <dd className="font-medium text-slate-800 dark:text-slate-200">
+                {String(k).toLowerCase().includes("snippet") || String(k).toLowerCase().includes("fix") ? (
+                  <pre className="mt-1 overflow-x-auto rounded-md border border-slate-200 bg-slate-50 p-2 font-mono text-xs text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                    <code>{v}</code>
+                  </pre>
+                ) : (
+                  v
+                )}
+              </dd>
+            </div>
           ))}
           {editable && <><dt className="pt-1.5 text-slate-500">Subject</dt><dd><input className="input !py-1" value={subject} onChange={(e) => setSubject(e.target.value)} aria-label="Email subject" /></dd></>}
         </dl>
@@ -130,9 +145,19 @@ export function ActionCard({ action, onChange }: { action: Action; onChange: (a:
       </div>
       {pending && (
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 dark:border-slate-800 dark:bg-slate-900/60">
-          <span className="mr-auto text-[11px] text-slate-500">Nothing is submitted until you confirm · logged to audit</span>
-          <Button onClick={() => decide(false)} disabled={!!busy}>{busy === "no" ? <Spinner /> : <X className="h-4 w-4" />}Cancel</Button>
-          <Button variant="primary" onClick={() => decide(true)} disabled={!!busy}>{busy === "ok" ? <Spinner /> : <Check className="h-4 w-4" />}Confirm &amp; submit</Button>
+          <span className="mr-auto text-[11px] text-slate-500">
+            {action.tool === "propose_code_fix"
+              ? "Zero code changes applied before approval · Staged in audit log"
+              : "Nothing is submitted until you confirm · logged to audit"}
+          </span>
+          <Button onClick={() => decide(false)} disabled={!!busy}>
+            {busy === "no" ? <Spinner /> : <X className="h-4 w-4" />}
+            {action.tool === "propose_code_fix" ? "Reject fix" : "Cancel"}
+          </Button>
+          <Button variant="primary" onClick={() => decide(true)} disabled={!!busy}>
+            {busy === "ok" ? <Spinner /> : <Check className="h-4 w-4" />}
+            {action.tool === "propose_code_fix" ? "Approve & apply fix" : "Confirm & submit"}
+          </Button>
         </div>
       )}
     </div>
