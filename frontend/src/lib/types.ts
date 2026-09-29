@@ -122,6 +122,24 @@ export interface MessageMeta {
   seeded?: boolean;
   plan?: AgentPlan;
   governance?: { approval_gates: string[]; overall_risk: string; data_minimization: boolean; tenant_boundary: string };
+  memory?: {
+    memory_recall?: boolean;
+    memory_count?: number;
+    memory_bank?: string;
+    memory_retained?: boolean;
+    recalled?: Array<{
+      id: string;
+      category: string;
+      text: string;
+      clearance: string;
+      department: string;
+      creator_name: string;
+      confidence?: string;
+    }>;
+    retained?: Array<any>;
+    bank_id?: string;
+    status?: string;
+  };
 } 
 
 export interface AgentPlanStep {
@@ -265,6 +283,17 @@ export interface RepositoryItem {
   access_rule: string;
 }
 
+export interface ConnectorAgentAccess {
+  allowed_agents: string[];
+  allowed_resources: string[];
+  read_write: {
+    read: boolean;
+    create: boolean;
+    update: boolean;
+    delete: boolean;
+  };
+}
+
 export interface Connector {
   id: string;
   company_id: string;
@@ -279,7 +308,7 @@ export interface Connector {
   account_email: string;
   scopes: string[];
   resources: string[];
-  agent_access: Record<string, string>;
+  agent_access: ConnectorAgentAccess | Record<string, any>;
   sync_stats: Record<string, any>;
   last_synced_at: string | null;
   created_at: string;
@@ -366,6 +395,7 @@ export interface ComposedWorkflowResult {
     url: string;
   }>;
   action_proposal: {
+    action_id?: string;
     title: string;
     summary: string;
     fields: Array<[string, string]>;

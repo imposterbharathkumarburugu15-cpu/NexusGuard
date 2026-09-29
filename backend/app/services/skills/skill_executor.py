@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from ...core.rbac import is_guest
 from ...core.security import Principal
+from ...db.models import AIAction
 from .skills_registry import SkillsRegistry
 
 log = logging.getLogger("novatech.skills.executor")
@@ -118,6 +119,25 @@ class SkillExecutor:
                 "priority": "High",
             }
         )
+
+        # Create real AIAction in database for human confirmation flow
+        act = AIAction(
+            company_id=principal.company_id,
+            user_id=principal.user_id,
+            tool="create_jira_issue",
+            args={
+                "project": "NOVA",
+                "title": "Enforce atomic Redis session blacklisting for token revocation",
+                "description": "Follow-up remediation for SEC-VULN-01. Ensure single-use refresh token verification.",
+                "priority": "High",
+            },
+            preview=jira_proposal["proposal"],
+            risk="HIGH",
+            status="pending_confirmation",
+        )
+        db.add(act)
+        db.commit()
+        jira_proposal["proposal"]["action_id"] = act.id
 
         return {
             "workflow": "Cross-Connector Security Assessment & Triage",

@@ -181,6 +181,9 @@ TOOL_POLICIES: dict[str, dict] = {
     "scan_vulnerabilities": {"permission": "repositories:read", "risk": "LOW",    "confirm": False},
     "get_repo_architecture":{"permission": "repositories:read", "risk": "LOW",    "confirm": False},
     "generate_enterprise_report": {"permission": "documents:read", "risk": "LOW", "confirm": False},
+    # Hindsight persistent memory tools
+    "retain_memory":        {"permission": "workspace:use",     "risk": "LOW",    "confirm": False},
+    "recall_memories":      {"permission": "workspace:use",     "risk": "LOW",    "confirm": False},
 }
 # Friendly aliases used in docs/prompts (same implementation + policy).
 TOOL_ALIASES = {"create_ticket": "create_it_ticket", "get_employee_info": "get_employee", "search_tasks": "get_pending_tasks",

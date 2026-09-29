@@ -16,13 +16,13 @@ from .nlp import detect_flags, parse_date
 from .retrieval import DEPT_WORDS
 
 AGENTS = ["Knowledge Agent", "HR Agent", "IT Agent", "Project Agent", "Document Agent", "Analytics Agent",
-          "Workflow Agent", "Productivity Agent"]
+          "Workflow Agent", "Productivity Agent", "Security Analysis Agent"]
 
 QUESTION_TYPES = {
     "knowledge": "Knowledge question", "employee": "Employee question", "analytics": "Analytics question",
     "document": "Document question", "workflow": "Workflow request", "multi_step": "Multi-step request",
     "restricted": "Restricted-data request", "general": "General", "productivity": "Productivity request",
-    "project": "Project question",
+    "project": "Project question", "security": "Security & Connector question",
 }
 
 _R = lambda p: re.compile(p, re.I)
@@ -180,8 +180,10 @@ def understand(db, principal, text: str) -> Understanding:
     question = bool(re.search(r"^\s*(how|what|when|where|why|who|which|can i|do i|should i|is|are|explain|tell me)\b",
                               low))
     can_i_leave = bool(re.search(r"^\s*can i\b", low) and f["leave_submit"])
+    jira_create = bool((f.get("jira") or "jira" in low) and (h["create"] or "create" in low) and not question)
     wants_action = h["create"] and not question
     wf = (f["delete"] or f["email"] or (f["leave_submit"] and (not question or can_i_leave)) or (h["ticket"] and h["create"]) or
+          jira_create or
           (h["device_problem"] and not re.search(r"^\s*(how|what|why)\b", low)) or
           (wants_action and (h["access_req"] or h["software_req"] or h["document_req"] or h["procurement_req"])))
     if f["leave_balance"] or (f["leave_submit"] and re.search(r"\b(balance|check|remaining|left)\b", low)):
@@ -193,13 +195,17 @@ def understand(db, principal, text: str) -> Understanding:
     if h["my_requests"]:
         add("Workflow Agent")
 
-    # --- Productivity -------------------------------------------------------------------------
-    if h["productivity"] or (f["tasks"] and not wf):
+    # --- Productivity (tasks, agenda, connected email search) ---------------------------------
+    if h["productivity"] or f.get("email_search") or (f["tasks"] and not wf):
         add("Productivity Agent")
 
-    # --- Projects ---------------------------------------------------------------------------
-    if u.projects or h["my_projects"] or (h["project_word"] and (h["project_aspect"] or h["summary_of_projects"])):
+    # --- Projects & Jira ----------------------------------------------------------------------
+    if (u.projects or h["my_projects"] or f.get("jira") or (h["project_word"] and (h["project_aspect"] or h["summary_of_projects"]))) and not jira_create:
         add("Project Agent")
+
+    # --- Security & Collaboration (Teams, Entra, Vulnerabilities) ----------------------------
+    if f.get("teams") or f.get("entra") or re.search(r"\b(vulnerabilit|cwe|security (analysis|scan|issue|posture)|scan vulnerabilities|teams discussion)\b", low):
+        add("Security Analysis Agent")
 
     # --- Analytics --------------------------------------------------------------------------
     data_view = bool(re.search(r"\b(budgets?|pipeline|expenses|purchase orders|opportunities|headcount|contracts)\b", low)
@@ -242,6 +248,8 @@ def understand(db, principal, text: str) -> Understanding:
         u.qtype = "restricted"
     elif len(agents) > 1 or re.search(r"\band (then |also )?(summari[sz]e|explain|tell|list|create|submit|draft)\b", low):
         u.qtype = "multi_step"
+    elif "Security Analysis Agent" in agents:
+        u.qtype = "security"
     elif "Workflow Agent" in agents:
         u.qtype = "workflow"
     elif "Analytics Agent" in agents:

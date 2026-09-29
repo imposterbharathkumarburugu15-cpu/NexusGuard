@@ -73,14 +73,24 @@ def test_connector_lifecycle(client):
     assert r_sync.json()["status"] == "synchronized"
     assert "items_indexed" in r_sync.json()
 
-    # Update Permissions
+    # Update Permissions using Canonical Schema
+    payload = {
+        "agent_access": {
+            "allowed_agents": ["Project Agent", "Workflow Agent"],
+            "allowed_resources": ["NOVA", "SEC"],
+            "read_write": {"read": True, "create": True, "update": False, "delete": False},
+        }
+    }
     r_perm = client.patch(
         f"/api/connectors/{conn_id}/permissions",
-        json={"agent_access": {"Engineering Agent": "read_write", "Guest Agent": "none"}},
+        json=payload,
         headers=auth_hdr,
     )
     assert r_perm.status_code == 200
-    assert r_perm.json()["agent_access"]["Engineering Agent"] == "read_write"
+    access = r_perm.json()["agent_access"]
+    assert "Project Agent" in access["allowed_agents"]
+    assert access["read_write"]["read"] is True
+    assert access["read_write"]["create"] is True
 
 
 def test_admin_connector_overview(client):

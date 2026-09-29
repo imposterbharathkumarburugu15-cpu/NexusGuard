@@ -8,6 +8,7 @@ os.environ["OPENAI_API_KEY"] = ""
 os.environ["CHAT_RATE_LIMIT_PER_MINUTE"] = "1000"
 os.environ["RATE_LIMIT_PER_MINUTE"] = "5000"
 os.environ["LOGIN_RATE_LIMIT_PER_MINUTE"] = "1000"
+os.environ["GUEST_RATE_LIMIT_PER_MINUTE"] = "1000"
 
 import pytest
 from fastapi.testclient import TestClient

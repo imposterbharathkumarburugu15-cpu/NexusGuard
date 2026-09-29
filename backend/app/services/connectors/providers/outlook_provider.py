@@ -6,6 +6,7 @@ Sending emails always requires explicit human confirmation.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -37,8 +38,13 @@ class OutlookProvider:
             if sender and sender.lower() not in meta.get("sender", "").lower():
                 continue
             if query:
-                q = query.lower()
-                matched = q in item.title.lower() or q in item.content.lower() or q in item.author.lower()
+                q = query.lower().strip()
+                tokens = [w for w in re.findall(r"\w+", q) if len(w) > 2 and w not in ("the", "about", "for", "with", "and", "latest", "recent")]
+                haystack = f"{item.title} {item.content} {item.author}".lower()
+                if tokens:
+                    matched = any(t in haystack for t in tokens)
+                else:
+                    matched = q in haystack
                 if not matched:
                     continue
 

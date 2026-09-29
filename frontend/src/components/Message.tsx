@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, Briefcase, Building2, Check, CheckCircle2, ChevronDown, Circle, CircleSlash, Clock, Copy,
+import { AlertTriangle, Bot, Brain, Briefcase, Building2, Check, CheckCircle2, ChevronDown, Circle, CircleSlash, Clock, Copy,
   Database, Eye, FileText, FolderKanban, Loader2, RefreshCw, ShieldAlert, ThumbsDown, ThumbsUp, User, X,
   XCircle } from "lucide-react";
 import { useState } from "react";
@@ -205,8 +205,48 @@ export function AssistantMessage({ msg, latest, onUpdate, onRegenerate }:
           {m.engine && !m.seeded && m.engine !== "offline" && <span className="rounded-full bg-brand-50 px-2 py-0.5 font-medium text-brand-700 dark:bg-brand-500/10 dark:text-brand-300">{m.engine === "openai" ? "LLM" : "Offline engine (fallback)"}</span>}
           {m.duration_ms !== undefined && <span className="text-slate-400">{(m.duration_ms / 1000).toFixed(2)}s</span>}
         </div>
-        {(m.notices ?? []).map((n) => <p key={n} className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">{n}</p>)}
         {!!m.timeline?.length && <AgentActivity steps={m.timeline} />}
+
+        {/* Hindsight Persistent Memory Proof-of-Learning Box */}
+        {Boolean((m.memory?.recalled && m.memory.recalled.length > 0) || (m.memory?.retained && m.memory.retained.length > 0)) && (
+          <div className="rounded-xl border border-purple-200/80 bg-gradient-to-r from-purple-50/70 via-indigo-50/40 to-white p-3.5 shadow-sm dark:border-purple-500/20 dark:from-purple-950/20 dark:via-indigo-950/10 dark:to-slate-900">
+            <div className="flex items-center justify-between gap-2 text-xs font-semibold text-purple-900 dark:text-purple-300">
+              <span className="flex items-center gap-1.5">
+                <Brain className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                Hindsight Persistent Memory (Vectorize)
+              </span>
+              <span className="font-mono text-[10.5px] font-normal text-purple-700/80 dark:text-purple-400/80">
+                Bank: {m.memory?.bank_id || "nexus_primary"}
+              </span>
+            </div>
+
+            {m.memory?.recalled && m.memory.recalled.length > 0 && (
+              <div className="mt-2.5 space-y-1.5">
+                <p className="text-[11px] font-medium uppercase tracking-wider text-purple-700/70 dark:text-purple-400/70">
+                  Recalled Organizational Decisions ({m.memory.recalled.length})
+                </p>
+                {m.memory.recalled.map((mem: any, idx: number) => (
+                  <div key={mem.id || idx} className="rounded-lg border border-purple-100 bg-white/80 p-2 text-xs text-slate-800 shadow-2xs dark:border-purple-900/40 dark:bg-slate-900/60 dark:text-slate-200">
+                    <div className="flex items-center gap-1.5 font-medium text-purple-800 dark:text-purple-300">
+                      <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] uppercase font-semibold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                        {mem.category?.replace(/_/g, " ")}
+                      </span>
+                      <span>by {mem.creator_name || "Team Member"}</span>
+                      {mem.department && <span className="text-[11px] text-slate-400">· {mem.department}</span>}
+                    </div>
+                    <p className="mt-1 italic text-slate-700 dark:text-slate-300">"{mem.text}"</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {m.memory?.retained && m.memory.retained.length > 0 && (
+              <div className="mt-2.5 rounded-lg border border-emerald-200/80 bg-emerald-50/60 p-2 text-xs text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-950/20 dark:text-emerald-300">
+                <span className="font-semibold">✓ Retained to Hindsight Bank:</span> Recorded new {m.memory.retained[0].category?.replace(/_/g, " ")} into persistent memory across sessions.
+              </div>
+            )}
+          </div>
+        )}
 
         {(m.security ?? []).map((s, i) => (
           <div key={i} role="status" className={cx("flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm",
@@ -222,6 +262,19 @@ export function AssistantMessage({ msg, latest, onUpdate, onRegenerate }:
         {denied && denied.document_ids?.[0] && !me.is_guest && (
           <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 dark:border-slate-800/80 dark:bg-slate-900/40">
             <RequestAccess docId={denied.document_ids[0]} />
+          </div>
+        )}
+
+        {m.memory?.recalled && m.memory.recalled.length > 0 && (
+          <div className="flex items-center gap-1.5 rounded-lg border border-purple-200/80 bg-purple-50/60 px-2.5 py-1 text-[11.5px] font-medium text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/10 dark:text-purple-300">
+            <Brain className="h-3.5 w-3.5 text-purple-500 shrink-0" />
+            <span>Used {m.memory.recalled.length} relevant organizational {m.memory.recalled.length === 1 ? "memory" : "memories"} (Hindsight)</span>
+          </div>
+        )}
+        {m.memory?.retained && m.memory.retained.length > 0 && (
+          <div className="flex items-center gap-1.5 rounded-lg border border-emerald-200/80 bg-emerald-50/60 px-2.5 py-1 text-[11.5px] font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+            <Brain className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+            <span>Learned and retained new organizational preference (Hindsight)</span>
           </div>
         )}
 

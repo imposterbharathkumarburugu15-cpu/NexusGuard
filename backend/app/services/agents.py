@@ -436,6 +436,94 @@ def workflow_agent(run: Runner, u: Understanding) -> AgentReply:
                          "@novatech.demo recipients. This attempt was logged.")
         else:
             parts.append(f"I couldn't draft that email: {out.summary}.")
+    if (f.get("jira") or "jira" in low) and (h.get("create") or "create" in low):
+        if not run.can("create_jira_issue"):
+            run("create_jira_issue", title="(not permitted)", description="-")
+            return AgentReply("Workflow Agent", "🔒 **Access denied.** Creating Jira issues requires elevated role permissions. The attempt was logged.")
+        m_proj = re.search(r"\b(?:in project|project|in)\s+([a-zA-Z0-9_-]+)\b", low)
+        proj = "NOVA"
+        if m_proj and m_proj.group(1).upper() not in ("JIRA", "A", "AN", "THE", "ISSUE", "TICKET"):
+            proj = m_proj.group(1).upper()
+        else:
+            proj = "SEC" if "sec" in low else "DEVOPS" if "devops" in low else "NOVA"
+
+        m_title = re.search(r"\btitled\s+['\"]?([^'\"]+?)['\"]?(?:$|\s+(?:in|with|priority|desc))", text, re.I)
+        if not m_title:
+            m_title = re.search(r"\b(?:issue|ticket)(?:\s+(?:about|for|to))?\s+['\"]?([^'\"]+?)['\"]?(?:$|\s+(?:in|with|priority))", text, re.I)
+        title = m_title.group(1).strip() if m_title else "New Jira issue"
+        title = re.sub(r"\b(?:in|for|project)\s+(NOVA|SEC|DEVOPS)\b", "", title, flags=re.I).strip() or "New Jira issue"
+        title = title[:1].upper() + title[1:]
+
+        priority = "High" if any(w in low for w in ("p1", "critical", "urgent", "high", "leak", "leakage", "vulnerability", "cve")) else "Medium"
+        assignee = "Alex Chen"
+        recalled = getattr(ctx, "recalled_memories", [])
+        applied_memories = []
+        is_security_task = (
+            proj == "SEC"
+            or any(w in low or w in title.lower() for w in ("security", "api key", "rotation", "token", "cve", "auth", "secret", "vulnerability", "leak", "leakage"))
+        )
+        found_priority = False
+        found_assignee = False
+        if recalled:
+            # Prioritize explicit process corrections and newer memories
+            sorted_memories = sorted(
+                recalled,
+                key=lambda m: (
+                    1 if m.category == "correction" or "changed" in m.text.lower() else 0,
+                    getattr(m, "score", 0.0),
+                    m.created_at or "",
+                ),
+                reverse=True,
+            )
+            for mem in sorted_memories:
+                m_low = mem.text.lower()
+                matches_topic = (
+                    "ticket" in m_low or "jira" in m_low or "issue" in m_low
+                    or (is_security_task and any(k in m_low for k in ("security", "sec", "key", "token", "process", "leak")))
+                )
+                if matches_topic:
+                    # Check priority if not yet determined from a higher-priority memory
+                    if not found_priority:
+                        if "high priority" in m_low or "critical" in m_low or (is_security_task and "high" in m_low):
+                            priority = "High"
+                            found_priority = True
+                            applied_memories.append("priority: High")
+                        elif "medium priority" in m_low:
+                            priority = "Medium"
+                            found_priority = True
+                            applied_memories.append("priority: Medium")
+
+                    # Check team / assignee preference if not yet determined from a higher-priority memory
+                    if not found_assignee:
+                        m_team = re.search(r"\b(?:use|assigned to|go to)\s+(?:the\s+)?([a-zA-Z\s]+?team)\b", mem.text, re.I)
+                        if m_team:
+                            assignee = m_team.group(1).strip().title()
+                            found_assignee = True
+                            applied_memories.append(f"assignee: {assignee}")
+                        elif "platform security" in m_low:
+                            assignee = "Platform Security Team"
+                            found_assignee = True
+                            applied_memories.append("assignee: Platform Security Team")
+                        elif "security team" in m_low:
+                            assignee = "Security Team"
+                            found_assignee = True
+                            applied_memories.append("assignee: Security Team")
+
+                    if found_priority and found_assignee:
+                        break
+
+        out = run("create_jira_issue", title=title, description=f"Raised via assistant: {text.strip()}", project=proj, priority=priority, assignee=assignee)
+        if out.status == "pending_confirmation":
+            mem_note = f"\n\n*(Recalled organizational preference from Hindsight applied: Assignee '{assignee}', Priority '{priority}')*" if applied_memories else ""
+            parts.append(f"I've prepared a Jira ticket in **{proj}**: *{title}* (Priority: {priority}, Assignee: {assignee}).{mem_note}\n\n"
+                         "Please review the action proposal card below and click **Confirm & submit** to create it. "
+                         "Nothing is committed to Jira until you confirm.")
+        elif out.status == "denied":
+            parts.append(f"🔒 **Access denied.** {out.summary} The attempt was logged.")
+        else:
+            parts.append(f"❌ {out.summary}.")
+        return AgentReply("Workflow Agent", "\n\n".join(parts))
+
     is_ticket = (h.get("ticket") and h.get("create")) or h.get("device_problem") or f.get("ticket")
     wants = is_ticket or f.get("email") or h.get("access_req") or h.get("software_req") \
         or h.get("document_req") or h.get("procurement_req")
@@ -492,6 +580,32 @@ def workflow_agent(run: Runner, u: Understanding) -> AgentReply:
 def project_agent(run: Runner, u: Understanding) -> AgentReply:
     ctx, low = run.ctx, u.text.lower()
     parts: list[str] = []
+
+    # Jira connector search
+    if u.flags.get("jira") or "jira" in low:
+        if "unauthorized" in low:
+            proj = "UNAUTHORIZED"
+        else:
+            m_proj = re.search(r"\b(?:project|in|from)\s+([a-zA-Z0-9_-]+)\b", low)
+            if m_proj and m_proj.group(1).upper() not in ("JIRA", "MY", "AN", "THE", "ALL"):
+                proj = m_proj.group(1).upper()
+            else:
+                proj = "SEC" if "sec" in low else "DEVOPS" if "devops" in low else "NOVA"
+        q = re.sub(r"\b(show|find|search|list|get|my|jira|issues?|tickets?|in|project|from|an|unauthorized)\b", " ", low).strip()
+        out = run("search_jira_issues", query=q, project=proj)
+        if out.status == "denied":
+            return AgentReply("Project Agent", f"🔒 **Access denied.** {out.summary} The attempt was logged.")
+        elif out.status == "ok":
+            issues = out.data.get("issues", [])
+            if not issues:
+                return AgentReply("Project Agent", f"No Jira issues found in project **{proj}** matching your query.")
+            lines = [f"Found **{len(issues)} Jira issue(s)** in project **{proj}**:\n"]
+            for iss in issues:
+                lines.append(f"- **[{iss['key']}]** {iss['title']} ({iss['status']} · Priority: {iss['priority']} · Assignee: {iss['assignee']})")
+            return AgentReply("Project Agent", "\n".join(lines))
+        else:
+            return AgentReply("Project Agent", f"I couldn't search Jira issues: {out.summary}.")
+
     wants_risks = bool(re.search(r"\brisks?\b", low))
     wants_members = bool(re.search(r"\b(members?|team|assigned|who (works|is working)|employees|people|staff)\b", low))
     wants_manager = bool(re.search(r"\b(who manages|manager|who (leads|owns|runs))\b", low))
@@ -741,6 +855,24 @@ def document_agent(run: Runner, u: Understanding) -> AgentReply:
 
 def productivity_agent(run: Runner, u: Understanding) -> AgentReply:
     ctx, low = run.ctx, u.text.lower()
+
+    # Connected Outlook email search
+    if u.flags.get("email_search") or (re.search(r"\b(email|e-mail|mailbox|inbox)\b", low) and not u.flags.get("email")):
+        q = re.sub(r"\b(search|find|show|get|read|check|latest|recent|look up|any|view|emails?|e-mails?|messages?|inbox|mailbox|about|regarding)\b", " ", low).strip()
+        out = run("search_emails", query=q)
+        if out.status == "denied":
+            return AgentReply("Productivity Agent", f"🔒 **Access denied.** {out.summary} The attempt was logged.")
+        elif out.status == "ok":
+            emails = out.data.get("emails", [])
+            if not emails:
+                return AgentReply("Productivity Agent", "No matching emails found in your connected Outlook mailbox.")
+            lines = [f"Found **{len(emails)} Outlook email(s)**:\n"]
+            for e in emails:
+                lines.append(f"- **From:** {e['sender']} · **Subject:** {e['subject']}\n  *{e['body_preview']}*")
+            return AgentReply("Productivity Agent", "\n".join(lines))
+        else:
+            return AgentReply("Productivity Agent", f"I couldn't search emails: {out.summary}.")
+
     if not run.can("get_pending_tasks"):
         return AgentReply("Productivity Agent", "Personal work summaries are available to signed-in employees only.")
     out = run("get_pending_tasks", scope="team" if re.search(r"\bmy team'?s?\b", low) else "me")
@@ -798,6 +930,69 @@ def productivity_agent(run: Runner, u: Understanding) -> AgentReply:
         lines += ["", f"**Suggested focus:** start with *{ranked[0]['title']}*"
                       + (f", then *{ranked[1]['title']}*" if len(ranked) > 1 else "") + "."]
     return AgentReply("Productivity Agent", "\n".join(lines))
+
+
+def security_agent(run: Runner, u: Understanding) -> AgentReply:
+    ctx, low = run.ctx, u.text.lower()
+    parts: list[str] = []
+
+    # 1. Teams messages query
+    if u.flags.get("teams") or "teams" in low or "#" in low:
+        if "unauthorized" in low or "#unauthorized" in low:
+            ch = "#unauthorized"
+        else:
+            m_ch = re.search(r"(#[\w-]+)", low)
+            if m_ch:
+                ch = m_ch.group(1)
+            else:
+                ch = "#security-eng" if "#security-eng" in low else "#general" if "#general" in low else "#backend-platform" if "#backend-platform" in low else "#security-eng"
+        q = re.sub(r"\b(what was discussed in teams|teams|search|find|discussions?|about|in channel|channel|messages?|unauthorized)\b", " ", low).strip()
+        out = run("search_teams_messages", query=q, channel=ch)
+        if out.status == "denied":
+            return AgentReply("Security Analysis Agent", f"🔒 **Access denied.** {out.summary} The attempt was logged.")
+        elif out.status == "ok":
+            msgs = out.data.get("messages", [])
+            if msgs:
+                parts.append(f"**Teams discussions in {ch}**:\n\n" + "\n".join(f"- **{m['author']}**: {m['message']}" for m in msgs))
+            else:
+                parts.append(f"No Teams messages found in {ch}.")
+
+    # 2. Microsoft Entra ID lookup
+    if u.flags.get("entra") or "entra" in low or "mfa" in low or "directory" in low:
+        target = "me"
+        m_email = re.search(r"[\w.-]+@[\w.-]+", low)
+        m_code = re.search(r"\bNT-\d{3,6}\b", u.text, re.I)
+        if m_email:
+            target = m_email.group(0)
+        elif m_code:
+            target = m_code.group(0)
+        out = run("lookup_entra_identity", query=target)
+        if out.status == "denied":
+            return AgentReply("Security Analysis Agent", f"🔒 **Access denied.** {out.summary} The attempt was logged.")
+        elif out.status == "ok":
+            ident = out.data
+            parts.append(f"**Microsoft Entra ID Profile: {ident['displayName']}** ({ident['userPrincipalName']})\n\n"
+                         f"• **Job Title:** {ident.get('jobTitle', 'Engineer')}\n"
+                         f"• **Clearance:** {ident.get('clearance', 'INTERNAL')}\n"
+                         f"• **Directory Groups:** {', '.join(ident.get('memberOf', []))}\n"
+                         f"• **MFA Status:** {ident.get('mfaStatus', 'Enforced')}\n"
+                         f"• **Conditional Access:** {ident.get('conditionalAccess', 'Compliant')}")
+        else:
+            parts.append(f"🔒 **Identity lookup failed.** {out.summary}")
+
+    # 3. Vulnerability scanning
+    if not parts or any(w in low for w in ("vulnerabilit", "scan", "cwe", "finding", "risk")):
+        target = "authentication service" if "auth" in low else "core platform"
+        out = run("scan_vulnerabilities", target=target)
+        if out.status == "denied":
+            return AgentReply("Security Analysis Agent", f"🔒 **Access denied.** {out.summary} The attempt was logged.")
+        elif out.status == "ok":
+            d = out.data
+            findings = d.get("findings", [])
+            parts.append(f"🛡️ **Security Vulnerability Scan: {target}** (Risk Score: {d.get('risk_score', 0)}/10)\n\n" +
+                         "\n".join(f"- **[{f['severity']}]** {f['title']} ({f['cwe']}) in `{f['affected_file']}:{f['line']}`\n  *Remediation:* {f['recommended_remediation']}" for f in findings))
+
+    return AgentReply("Security Analysis Agent", "\n\n".join(parts) if parts else NOT_FOUND)
 
 
 def _local(iso: str) -> str:

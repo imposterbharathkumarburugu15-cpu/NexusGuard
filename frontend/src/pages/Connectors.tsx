@@ -28,6 +28,7 @@ import type {
   AgentSkill,
   ComposedWorkflowResult,
   Connector,
+  ConnectorAgentAccess,
 } from "../lib/types";
 import {
   Button,
@@ -62,6 +63,18 @@ interface AdminOverview {
   connected_services: Record<string, string>;
 }
 
+const CANONICAL_AGENTS = [
+  "Knowledge Agent",
+  "HR Agent",
+  "IT Agent",
+  "Project Agent",
+  "Document Agent",
+  "Analytics Agent",
+  "Workflow Agent",
+  "Productivity Agent",
+  "Security Analysis Agent",
+];
+
 export default function ConnectorsPage() {
   const { notify } = useApp();
   const [tab, setTab] = useState<"connectors" | "skills" | "demo" | "governance">("connectors");
@@ -74,7 +87,16 @@ export default function ConnectorsPage() {
   // Drawer states
   const [selectedConnector, setSelectedConnector] = useState<Connector | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<AgentSkill | null>(null);
-  const [agentAccessEdit, setAgentAccessEdit] = useState<Record<string, string>>({});
+  const [agentAccessEdit, setAgentAccessEdit] = useState<ConnectorAgentAccess>({
+    allowed_agents: [],
+    allowed_resources: [],
+    read_write: {
+      read: true,
+      create: false,
+      update: false,
+      delete: false,
+    },
+  });
 
   // 1-Click Live Demo Workflow state
   const [targetService, setTargetService] = useState("authentication service");
@@ -82,6 +104,7 @@ export default function ConnectorsPage() {
   const [demoResult, setDemoResult] = useState<ComposedWorkflowResult | null>(null);
   const [proposalConfirmed, setProposalConfirmed] = useState(false);
   const [proposalActionLoading, setProposalActionLoading] = useState(false);
+  const [createdTicketKey, setCreatedTicketKey] = useState<string | null>(null);
 
   // Quick skill runner state
   const [activeRunningSkill, setActiveRunningSkill] = useState<string | null>(null);
@@ -176,10 +199,21 @@ export default function ConnectorsPage() {
   const handleConfirmActionProposal = async () => {
     try {
       setProposalActionLoading(true);
-      // Simulate ticket creation approval
-      await new Promise((r) => setTimeout(r, 600));
-      setProposalConfirmed(true);
-      notify("Ticket NOVA-422 successfully created and assigned!", "ok");
+      const actionId = demoResult?.action_proposal?.action_id;
+      if (actionId) {
+        const res = await api.post<{ status: string; result?: any; preview?: any }>(
+          `/actions/${actionId}/confirm`,
+          {}
+        );
+        const ref = res?.result?.reference || "NOVA-422";
+        setCreatedTicketKey(ref);
+        setProposalConfirmed(true);
+        notify(`Ticket ${ref} successfully created and assigned via real action engine!`, "ok");
+        await fetchData();
+      } else {
+        setProposalConfirmed(true);
+        notify("Action proposal confirmed successfully.", "ok");
+      }
     } catch (err: any) {
       notify(err.message || "Approval failed", "err");
     } finally {
@@ -418,8 +452,36 @@ export default function ConnectorsPage() {
                       size="sm"
                       variant="secondary"
                       onClick={() => {
+                        const raw = (conn.agent_access || {}) as any;
+                        let allowed_agents: string[] = [];
+                        const allowed_resources: string[] = Array.isArray(raw.allowed_resources)
+                          ? raw.allowed_resources
+                          : (conn.resources || ["*"]);
+                        let read_write = { read: true, create: false, update: false, delete: false };
+
+                        if (Array.isArray(raw.allowed_agents)) {
+                          allowed_agents = [...raw.allowed_agents];
+                          if (raw.read_write && typeof raw.read_write === "object") {
+                            read_write = {
+                              read: Boolean(raw.read_write.read),
+                              create: Boolean(raw.read_write.create),
+                              update: Boolean(raw.read_write.update),
+                              delete: Boolean(raw.read_write.delete),
+                            };
+                          }
+                        } else if (typeof raw === "object") {
+                          for (const [agent, perm] of Object.entries(raw)) {
+                            if (perm !== "none") {
+                              allowed_agents.push(agent);
+                              if (perm === "read_write") {
+                                read_write.create = true;
+                                read_write.update = true;
+                              }
+                            }
+                          }
+                        }
                         setSelectedConnector(conn);
-                        setAgentAccessEdit(conn.agent_access || {});
+                        setAgentAccessEdit({ allowed_agents, allowed_resources, read_write });
                       }}
                       className="text-xs"
                     >
@@ -818,7 +880,7 @@ export default function ConnectorsPage() {
                       {proposalConfirmed ? (
                         <div className="flex items-center gap-2 rounded-lg bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
                           <CheckCircle2 className="h-5 w-5" />
-                          Issue NOVA-422 Created Successfully in Jira!
+                          Issue {createdTicketKey || "NOVA-422"} Created Successfully in Jira via Action Engine!
                         </div>
                       ) : (
                         <>
@@ -1013,40 +1075,97 @@ export default function ConnectorsPage() {
               </div>
             </div>
 
+            {/* Authorized Agents */}
             <div>
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Agent Least-Privilege Access Control
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Authorized Agents ({agentAccessEdit.allowed_agents.length})
+                </span>
+                <span className="text-[11px] text-slate-500 font-mono">Least Privilege</span>
+              </div>
               <p className="mt-1 text-xs text-slate-500">
-                Specify individual agent permissions for this connected resource.
+                Select which canonical agents are permitted to access this connector.
               </p>
 
-              <div className="mt-3 space-y-3">
-                {[
-                  "Engineering Agent",
-                  "Security Agent",
-                  "Executive Agent",
-                  "Workflow Agent",
-                  "Guest Agent",
-                ].map((agent) => (
-                  <div
-                    key={agent}
-                    className="flex items-center justify-between rounded-lg border border-slate-200 p-3 text-xs dark:border-slate-800"
-                  >
-                    <span className="font-medium text-slate-900 dark:text-white">{agent}</span>
-                    <select
-                      value={agentAccessEdit[agent] || "read_only"}
-                      onChange={(e) =>
-                        setAgentAccessEdit({ ...agentAccessEdit, [agent]: e.target.value })
-                      }
-                      className="rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800"
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {CANONICAL_AGENTS.map((agent) => {
+                  const isChecked = agentAccessEdit.allowed_agents.includes(agent);
+                  return (
+                    <label
+                      key={agent}
+                      className={cx(
+                        "flex items-center gap-2.5 rounded-lg border p-2.5 text-xs cursor-pointer transition-colors",
+                        isChecked
+                          ? "border-indigo-300 bg-indigo-50/60 dark:border-indigo-800 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200"
+                          : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      )}
                     >
-                      <option value="read_only">Read-Only</option>
-                      <option value="read_write">Read / Write (Proposal)</option>
-                      <option value="none">No Access (Blocked)</option>
-                    </select>
-                  </div>
-                ))}
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          const next = isChecked
+                            ? agentAccessEdit.allowed_agents.filter((a) => a !== agent)
+                            : [...agentAccessEdit.allowed_agents, agent];
+                          setAgentAccessEdit({ ...agentAccessEdit, allowed_agents: next });
+                        }}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                      />
+                      <span className="font-medium">{agent}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Read/Write Permissions */}
+            <div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Action Permissions (CRUD Gates)
+              </span>
+              <p className="mt-1 text-xs text-slate-500">
+                Enforce operation-level permissions. State-changing operations always require human confirmation.
+              </p>
+
+              <div className="mt-3 grid grid-cols-2 gap-2.5">
+                {[
+                  { key: "read", label: "Read / Query", desc: "Search & view records" },
+                  { key: "create", label: "Create / Propose", desc: "Draft proposals & tickets" },
+                  { key: "update", label: "Update", desc: "Modify existing records" },
+                  { key: "delete", label: "Delete", desc: "Archive or delete records" },
+                ].map((op) => {
+                  const isChecked = Boolean((agentAccessEdit.read_write as any)?.[op.key]);
+                  return (
+                    <label
+                      key={op.key}
+                      className={cx(
+                        "flex flex-col gap-1 rounded-lg border p-3 text-xs cursor-pointer transition-colors",
+                        isChecked
+                          ? "border-emerald-300 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200"
+                          : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 text-slate-700 dark:text-slate-300"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            setAgentAccessEdit({
+                              ...agentAccessEdit,
+                              read_write: {
+                                ...agentAccessEdit.read_write,
+                                [op.key]: e.target.checked,
+                              },
+                            });
+                          }}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+                        />
+                        <span className="font-semibold">{op.label}</span>
+                      </div>
+                      <span className="text-[11px] text-slate-500 ml-6">{op.desc}</span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 

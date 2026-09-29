@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     resend_api_key: str | None = None
     sendgrid_api_key: str | None = None
 
+    # Hindsight (Vectorize) Persistent Memory Service
+    hindsight_base_url: str = "http://localhost:8888"
+    hindsight_api_key: str | None = None
+    hindsight_timeout_seconds: float = 5.0
+    hindsight_enabled: bool = True
+
     @property
     def openai_enabled(self) -> bool:
         return bool(self.openai_api_key and self.openai_api_key.strip())

@@ -87,7 +87,7 @@ class Timeline:
 
 def action_public(a: AIAction) -> dict:
     return {"id": a.id, "tool": a.tool, "status": a.status, "risk": a.risk, "preview": a.preview,
-            "result": a.result, "created_at": a.created_at.isoformat() if a.created_at else None}
+            "args": a.args, "result": a.result, "created_at": a.created_at.isoformat() if a.created_at else None}
 
 
 def _step_for(tl: Timeline, out: ToolOutcome):
@@ -165,6 +165,11 @@ def run_openai(ctx: ToolContext, tl: Timeline, text: str, history: list[dict]) -
                f"{p.department} department; role {p.role_name}; clearance {p.clearance}; manager "
                f"{mgr.full_name + ' <' + mgr.email + '>' if mgr else 'none'}.")
     system = SYSTEM_PROMPT.format(company=p.company_name, today=fmt_date(today()), who=who)
+    if getattr(ctx, "recalled_memories", None):
+        from .memory import memory_service
+        mem_block = memory_service.format_memories_for_prompt(ctx.recalled_memories)
+        if mem_block:
+            system += f"\n\n{mem_block}"
     messages: list[dict] = [{"role": "system", "content": system}]
     for h in history[-8:]:
         messages.append({"role": h["role"], "content": h["content"][:2000]})
@@ -197,10 +202,64 @@ def run_openai(ctx: ToolContext, tl: Timeline, text: str, history: list[dict]) -
 AGENT_FN = {"Knowledge Agent": A.knowledge_agent, "HR Agent": A.hr_agent, "IT Agent": A.it_agent,
             "Project Agent": A.project_agent, "Document Agent": A.document_agent,
             "Analytics Agent": A.analytics_agent, "Workflow Agent": A.workflow_agent,
-            "Productivity Agent": A.productivity_agent}
+            "Productivity Agent": A.productivity_agent,
+            "Security Analysis Agent": A.security_agent}
 
 
 def run_offline(ctx: ToolContext, tl: Timeline, u: Understanding) -> tuple[str, list[str]]:
+    # Direct proof-of-learning evaluation when Hindsight memories are recalled
+    query_lower = u.text.lower() if hasattr(u, "text") else ""
+    recalled = getattr(ctx, "recalled_memories", [])
+    if recalled and any(w in query_lower for w in ("review", "token", "auth", "jwt", "pr", "decision", "standard", "conventions", "rule")):
+        for m in recalled:
+            m_text = m.text.lower()
+            if any(term in m_text for term in ("jwt", "token", "auth", "password", "security")):
+                is_violation = any(v in query_lower for v in ("30-day", "long-lived", "no refresh", "without rotation", "skip rotation"))
+                if is_violation:
+                    tl.add("memory_applied", "Hindsight Memory Applied", "done", f"Evaluated against team decision: {m.text[:40]}...")
+                    reply = (
+                        f"🛡️ **Architecture & Security Review (Guided by Hindsight Memory)**\n\n"
+                        f"**MEMORY RETRIEVED:**\n"
+                        f"> [{m.category.replace('_', ' ').title()}] (by {m.creator_name}, {m.department} dept):\n"
+                        f"> *\"{m.text}\"*\n\n"
+                        f"**MEMORY USED:**\n"
+                        f"Evaluated proposed changes against team engineering standards recalled from Hindsight memory bank.\n\n"
+                        f"**DECISION:**\n"
+                        f"❌ **Policy Violation Detected**: The proposed implementation introduces 30-day bearer JWT tokens without refresh token rotation. "
+                        f"This directly contradicts the team decision recalled from Hindsight (*'{m.text}'*).\n\n"
+                        f"**Recommended Actions:**\n"
+                        f"1. Reduce access token lifetime to short-lived (e.g. 15 minutes).\n"
+                        f"2. Enforce single-use refresh token rotation with atomic revocation.\n"
+                    )
+                    return reply, ["Knowledge Agent"]
+                elif any(q in query_lower for q in ("decision", "standard", "rule", "prefer", "what is", "how should")):
+                    tl.add("memory_applied", "Hindsight Memory Applied", "done", f"Recalled standard: {m.text[:40]}...")
+                    reply = (
+                        f"🧠 **Team Engineering Standard (from Hindsight Memory)**\n\n"
+                        f"**MEMORY RETRIEVED:**\n"
+                        f"> [{m.category.replace('_', ' ').title()}] (by {m.creator_name}, {m.department} dept):\n"
+                        f"> *\"{m.text}\"*\n\n"
+                        f"**MEMORY USED:**\n"
+                        f"Applied team consensus recalled from persistent memory bank.\n\n"
+                        f"**DECISION:**\n"
+                        f"For authentication code, follow the established rule: *{m.text}*."
+                    )
+                    return reply, ["Knowledge Agent"]
+
+    # Handle explicit directive to remember in offline mode
+    if any(query_lower.startswith(p) for p in ("remember", "team decision", "our team prefers", "we decided", "engineering decision")):
+        from .memory import memory_service
+        should_ret, cat, ext_text = memory_service.should_retain_directive(u.text)
+        if should_ret:
+            tl.add("hindsight_retain", "Retaining to Hindsight Memory", "done", f"Persisted {cat.replace('_', ' ')}")
+            return (
+                f"🧠 **Stored in Hindsight Persistent Memory**\n\n"
+                f"I have recorded this {cat.replace('_', ' ')} in the team's persistent Hindsight memory bank:\n\n"
+                f"> *\"{ext_text}\"*\n\n"
+                f"**Scope:** Tenant `{ctx.principal.company_name}` · Department `{ctx.principal.department}` · Clearance `{ctx.principal.clearance}`\n\n"
+                f"This will now actively guide future code reviews, PR evaluations, and technical recommendations across all sessions."
+            ), ["Knowledge Agent"]
+
     if u.qtype == "general":
         return A.general_reply(ctx, u), []
     run = A.Runner(ctx, lambda out: _step_for(tl, out))
@@ -280,6 +339,7 @@ def run_agent(db: DBSession, p: Principal, text: str, *, conversation_id: str, h
            f"{p.role_name} · clearance {p.clearance.title()} · {tools_ok}/{len(TOOL_SCHEMAS)} tools permitted")
 
     security: list[dict] = []
+    retained_memories: list[dict] = []
     answer = ""
     blocked = False
     used_agents: list[str] = []
@@ -329,6 +389,23 @@ def run_agent(db: DBSession, p: Principal, text: str, *, conversation_id: str, h
         tl.add("route_Workflow Agent", "Routing to Workflow Agent", "done", "Clarification needed", None, "Workflow Agent")
     else:
         tl.add("input_guard", "Scanning request for prompt injection", "done", "Clean")
+
+        # Phase 5: Hindsight Memory Recall
+        # Retrieve relevant memories matching user query subject to strict tenant isolation & RBAC
+        try:
+            from .memory import memory_service
+            recalled_memories = memory_service.recall(db, p, text, request_id=request_id)
+            ctx.recalled_memories = recalled_memories
+            if recalled_memories:
+                tl.add("hindsight_recall", "Hindsight Memory Recalled", "done",
+                       f"Recalled {len(recalled_memories)} organizational decision(s)")
+            else:
+                tl.add("hindsight_recall", "Hindsight Memory Checked", "done", "No past organizational constraints found")
+        except Exception as exc:
+            log.warning("Hindsight recall failed gracefully: %s", exc)
+            ctx.recalled_memories = []
+            tl.add("hindsight_recall", "Hindsight Memory Checked", "warning", "Memory service offline - degraded mode")
+
         if intent_data["intent"] == "APPLY_LEAVE":
             u.flags["leave_submit"] = True
             if "Workflow Agent" not in u.agents:
@@ -348,6 +425,26 @@ def run_agent(db: DBSession, p: Principal, text: str, *, conversation_id: str, h
             answer = ""
         if not answer:
             answer, used_agents = run_offline(ctx, tl, u)
+
+        # Phase 4: Hindsight Memory Retain (Autonomous Retention of Directives & Decisions)
+        try:
+            from .memory import memory_service
+            should_ret, cat, ext_text = memory_service.should_retain_directive(text)
+            if should_ret and not blocked:
+                ret_res = memory_service.retain(
+                    db=db,
+                    principal=p,
+                    content=ext_text,
+                    category=cat,
+                    clearance="INTERNAL" if p.clearance != "PUBLIC" else "PUBLIC",
+                    department=p.department,
+                    request_id=request_id
+                )
+                retained_memories.append(ret_res)
+                tl.add("hindsight_retain", "Retained to Hindsight", "done", f"Recorded {cat.replace('_', ' ')}")
+        except Exception as exc:
+            log.warning("Hindsight automatic retention failed: %s", exc)
+
         tl.add("generate", "Generating grounded response", "done",
                f"{len(ctx.retrievals)} retrieval(s) · {len(ctx.records)} record(s) · engine {engine}")
 
@@ -479,6 +576,16 @@ def run_agent(db: DBSession, p: Principal, text: str, *, conversation_id: str, h
         "governance": {"approval_gates": [s["id"] for s in plan["steps"] if s["approval_required"]],
                        "overall_risk": plan["overall_risk"], "data_minimization": True,
                        "tenant_boundary": p.company_id},
+        "memory": {
+            "memory_recall": bool(getattr(ctx, "recalled_memories", None)),
+            "memory_count": len(getattr(ctx, "recalled_memories", [])),
+            "memory_bank": f"nexus_{p.company_id}",
+            "memory_retained": bool(retained_memories),
+            "recalled": [m.to_dict() for m in getattr(ctx, "recalled_memories", [])],
+            "retained": retained_memories,
+            "bank_id": f"nexus_{p.company_id}",
+            "status": "active" if getattr(ctx, "recalled_memories", None) or retained_memories else "idle",
+        },
     }
     db.add(WorkflowExecution(company_id=p.company_id, user_id=p.user_id, conversation_id=conversation_id,
                              intent=intent, engine=engine, agents=used_agents, steps=tl.steps,

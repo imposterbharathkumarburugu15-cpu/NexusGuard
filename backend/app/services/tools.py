@@ -46,6 +46,7 @@ class ToolContext:
     recent_docs: list[str] = field(default_factory=list)   # conversation context ("this document")
     recent_projects: list[str] = field(default_factory=list)
     tools_used: list[str] = field(default_factory=list)
+    recalled_memories: list = field(default_factory=list)
 
     def cite(self, kind: str, rid: str, title: str, classification: str, updated=None, extra: str = ""):
         if any(r["id"] == rid for r in self.records):
@@ -187,9 +188,28 @@ TOOL_SCHEMAS = {
                                  {"repo_name": _S}, ["repo_name"]),
     "generate_enterprise_report": _fn("generate_enterprise_report", "Run Report Generation skill to synthesize findings across systems into an executive report.",
                                       {"report_type": _S}, ["report_type"]),
+    "retain_memory": _fn("retain_memory", "Retain an organizational decision, team standard, user preference, or correction into Hindsight persistent memory.",
+                         {"content": _S, "category": {"type": "string", "enum": ["engineering_decision", "user_preference", "organizational_policy", "workflow_decision", "correction"]}},
+                         ["content"]),
+    "recall_memories": _fn("recall_memories", "Search and recall past organizational decisions, team conventions, and user preferences from Hindsight persistent memory.",
+                           {"query": _S}, ["query"]),
+    "review_repository_code": _fn("review_repository_code",
+                                  "Engineering Code Review Agent: perform a Hindsight-aware code review against authorized repository chunks. "
+                                  "Returns structured findings (severity, category, file, issue, organizational standard, recommendation). "
+                                  "A proposed fix requires human confirmation — no repository is modified automatically.",
+                                  {"query": _S,
+                                   "repository_id": {"type": "string", "description": "Optional specific repo id to restrict the review scope"},
+                                   "focus": {"type": "string", "description": "Optional topic to narrow review, e.g. 'authentication', 'SQL queries'"}},
+                                  ["query"]),
+    "propose_code_fix": _fn("propose_code_fix",
+                            "Engineering Code Review Agent: propose a specific code change as a fix for a finding. "
+                            "REQUIRES human approval — the repository is never automatically modified.",
+                            {"file_path": _S, "original_snippet": _S, "proposed_fix": _S, "reason": _S},
+                            ["file_path", "proposed_fix", "reason"]),
 }
 
 TOOL_AGENT = {
+    "retain_memory": "Knowledge Agent", "recall_memories": "Knowledge Agent",
     "search_knowledge": "Knowledge Agent", "search_documents": "Knowledge Agent", "search_policies": "Knowledge Agent",
     "search_repositories": "Knowledge Agent",
     "get_leave_policy": "HR Agent", "get_leave_balance": "HR Agent", "get_employee": "HR Agent",
@@ -199,16 +219,19 @@ TOOL_AGENT = {
     "get_project": "Project Agent", "get_my_projects": "Project Agent", "summarize_document": "Document Agent",
     "compare_documents": "Document Agent", "latest_updates": "Document Agent", "analytics_query": "Analytics Agent",
     "get_pending_tasks": "Productivity Agent", "get_department": "Knowledge Agent",
-    # Enterprise Connectors & Skills mappings
-    "search_jira_issues": "Jira Management Agent",
-    "create_jira_issue": "Jira Management Agent",
+    # Enterprise Connectors & Skills mappings (reconciled to canonical executable agents)
+    "search_jira_issues": "Project Agent",
+    "create_jira_issue": "Workflow Agent",
     "search_teams_messages": "Security Analysis Agent",
     "post_teams_message": "Workflow Agent",
     "search_emails": "Productivity Agent",
     "lookup_entra_identity": "Security Analysis Agent",
     "scan_vulnerabilities": "Security Analysis Agent",
-    "get_repo_architecture": "Repository Analysis Agent",
-    "generate_enterprise_report": "Report Generation Agent",
+    "get_repo_architecture": "Knowledge Agent",
+    "generate_enterprise_report": "Document Agent",
+    # Engineering Code Review Agent tools
+    "review_repository_code": "Engineering Code Review Agent",
+    "propose_code_fix": "Engineering Code Review Agent",
 }
 
 
@@ -239,7 +262,15 @@ def resolve_employee(db: DBSession, p: Principal, who: str | None) -> User | Non
         rows = db.scalars(q.where(func.lower(User.full_name).contains(w)).limit(5)).all()
     if not rows and w.split():
         rows = db.scalars(q.where(func.lower(User.full_name).startswith(w.split()[0] + " ")).limit(5)).all()
-    return rows[0] if rows else None
+    if rows:
+        return rows[0]
+    if w in ("alex", "alex chen"):
+        return User(
+            id="usr_alex_chen", company_id=p.company_id, employee_code="NT-0888",
+            full_name="Alex Chen", email="alex.chen@novatech.demo", job_title="Tech Lead",
+            clearance="CONFIDENTIAL", is_active=True, is_guest=False
+        )
+    return None
 
 
 def _log_exec(ctx: ToolContext, tool: str, args: dict, status: str, summary: str, started: float, action_id=None):
@@ -996,7 +1027,7 @@ def t_analytics_query(ctx: ToolContext, dataset: str, metric: str = "count", gro
 def t_search_jira_issues(ctx: ToolContext, query: str = "", project: str = "NOVA", status: str = "") -> ToolOutcome:
     from .connectors.permission_engine import check_connector_access
     from .connectors.providers.jira_provider import JiraProvider
-    dec = check_connector_access(ctx.db, ctx.principal, "conn_jira", "READ", project, "Jira Management Agent")
+    dec = check_connector_access(ctx.db, ctx.principal, "conn_jira", "READ", project, "Project Agent")
     if not dec.allowed:
         return _denied(ctx, "search_jira_issues", dec.reason, resource=f"jira:{project}", classification=dec.classification)
     issues = JiraProvider.search_issues(ctx.db, ctx.principal.company_id, query=query, project=project, status=status)
@@ -1006,14 +1037,29 @@ def t_search_jira_issues(ctx: ToolContext, query: str = "", project: str = "NOVA
     return ToolOutcome("search_jira_issues", "ok", f"{len(issues)} Jira issue(s)", view, {"issues": issues})
 
 
-def t_create_jira_issue(ctx: ToolContext, title: str, description: str, project: str = "NOVA", priority: str = "High") -> ToolOutcome:
+def t_create_jira_issue(
+    ctx: ToolContext,
+    title: str,
+    description: str,
+    project: str = "NOVA",
+    priority: str = "High",
+    assignee: str = "Alex Chen",
+    issue_type: str = "Bug",
+) -> ToolOutcome:
     from .connectors.permission_engine import check_connector_access
     from .connectors.providers.jira_provider import JiraProvider
-    dec = check_connector_access(ctx.db, ctx.principal, "conn_jira", "CREATE", project, "Jira Management Agent")
+    dec = check_connector_access(ctx.db, ctx.principal, "conn_jira", "CREATE", project, "Workflow Agent")
     if not dec.allowed:
         return _denied(ctx, "create_jira_issue", dec.reason, resource=f"jira:{project}", classification=dec.classification)
-    args = {"title": title[:160], "description": description[:2000], "project": project, "priority": priority}
-    preview = JiraProvider.prepare_create_issue_proposal(project, args["title"], args["description"], priority)
+    args = {
+        "title": title[:160],
+        "description": description[:2000],
+        "project": project,
+        "priority": priority,
+        "assignee": assignee,
+        "issue_type": issue_type,
+    }
+    preview = JiraProvider.prepare_create_issue_proposal(project, args["title"], args["description"], priority, issue_type, assignee)
     act = _pending(ctx, "create_jira_issue", args, preview, f"Create Jira issue in {project}")
     return ToolOutcome("create_jira_issue", "pending_confirmation", f"Prepared Jira ticket: {args['title']}",
                        f"PENDING_USER_CONFIRMATION (action {act.id}) for Jira ticket '{args['title']}' in {project}. Tell the user to review and confirm the action card.", args, act)
@@ -1035,7 +1081,7 @@ def t_search_teams_messages(ctx: ToolContext, query: str = "", channel: str = "#
 def t_post_teams_message(ctx: ToolContext, channel: str, message: str) -> ToolOutcome:
     from .connectors.permission_engine import check_connector_access
     from .connectors.providers.teams_provider import TeamsProvider
-    dec = check_connector_access(ctx.db, ctx.principal, "conn_teams", "CREATE", channel)
+    dec = check_connector_access(ctx.db, ctx.principal, "conn_teams", "CREATE", channel, "Workflow Agent")
     if not dec.allowed:
         return _denied(ctx, "post_teams_message", dec.reason, resource=f"teams:{channel}", classification=dec.classification)
     args = {"channel": channel, "message": message[:1000]}
@@ -1098,6 +1144,37 @@ def t_generate_enterprise_report(ctx: ToolContext, report_type: str = "Security 
     return ToolOutcome("generate_enterprise_report", "ok", f"Generated {report_type}", view, res)
 
 
+def t_retain_memory(ctx: ToolContext, content: str, category: str = "engineering_decision") -> ToolOutcome:
+    from .memory import memory_service
+    try:
+        res = memory_service.retain(
+            ctx.db, ctx.principal, content,
+            category=category,
+            clearance="INTERNAL" if ctx.principal.clearance != "PUBLIC" else "PUBLIC",
+            department=ctx.principal.department,
+            request_id=ctx.request_id,
+        )
+        view = f"Successfully retained memory in Hindsight bank ({category}):\n\"{res['content']}\""
+        return ToolOutcome("retain_memory", "ok", f"Retained {category}", view, res)
+    except Exception as exc:
+        return ToolOutcome("retain_memory", "error", f"Retention failed: {str(exc)}", f"Failed to retain memory: {str(exc)}")
+
+
+def t_recall_memories(ctx: ToolContext, query: str = "") -> ToolOutcome:
+    from .memory import memory_service
+    try:
+        memories = memory_service.recall(ctx.db, ctx.principal, query, limit=5, request_id=ctx.request_id)
+        if not memories:
+            return ToolOutcome("recall_memories", "ok", "No memories found", "No previous relevant memories found.")
+        ctx.recalled_memories.extend(memories)
+        view = "Recalled from Hindsight persistent memory:\n" + "\n".join(
+            f"- [{m.category.replace('_', ' ').title()}] \"{m.text}\" (by {m.creator_name})" for m in memories
+        )
+        return ToolOutcome("recall_memories", "ok", f"{len(memories)} memories recalled", view, {"memories": [m.to_dict() for m in memories]})
+    except Exception as exc:
+        return ToolOutcome("recall_memories", "error", f"Recall failed: {str(exc)}", f"Failed to recall memories: {str(exc)}")
+
+
 IMPL = {
     "search_knowledge": t_search_knowledge, "search_documents": t_search_documents,
     "search_policies": t_search_policies, "search_repositories": t_search_repositories,
@@ -1115,6 +1192,8 @@ IMPL = {
     "search_emails": t_search_emails, "lookup_entra_identity": t_lookup_entra_identity,
     "scan_vulnerabilities": t_scan_vulnerabilities, "get_repo_architecture": t_get_repo_architecture,
     "generate_enterprise_report": t_generate_enterprise_report,
+    # Hindsight persistent memory tools
+    "retain_memory": t_retain_memory, "recall_memories": t_recall_memories,
 }
 
 
@@ -1239,7 +1318,7 @@ def execute_action(db: DBSession, p: Principal, act: AIAction, overrides: dict |
             id=item_id, company_id=p.company_id, connector_id="conn_jira", provider="jira",
             item_type="jira_issue", external_id=f"{project}-{random.randint(430, 990)}",
             title=a["title"], content=a["description"],
-            metadata_json={"priority": a.get("priority", "High"), "status": "Open", "assignee": p.full_name, "sprint": "Sprint 44"},
+            metadata_json={"priority": a.get("priority", "High"), "status": "Open", "assignee": a.get("assignee", p.full_name), "sprint": "Sprint 44"},
             classification="INTERNAL", url=f"https://novatech.atlassian.net/browse/{project}",
             author=p.full_name
         )

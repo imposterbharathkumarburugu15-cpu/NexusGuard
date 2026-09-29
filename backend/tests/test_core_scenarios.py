@@ -87,6 +87,17 @@ def test_scenario2_restricted_denied_and_never_in_context(client):
 
 
 def test_scenario3_leave_balance_then_confirmed_submission(client):
+    from app.db.session import SessionLocal
+    from app.db.models import LeaveBalance, LeaveRequest, User
+    from sqlalchemy import select, delete
+    with SessionLocal() as db:
+        u = db.scalar(select(User).where(User.email == RAHUL))
+        if u:
+            bal = db.scalar(select(LeaveBalance).where(LeaveBalance.user_id == u.id))
+            if bal:
+                bal.casual_used = 5.0
+            db.execute(delete(LeaveRequest).where(LeaveRequest.user_id == u.id))
+            db.commit()
     h = login(client, RAHUL)
     m = ask(client, h, "Check my leave balance and submit leave for Monday.")["assistant_message"]
     assert "7 casual" in m["content"]

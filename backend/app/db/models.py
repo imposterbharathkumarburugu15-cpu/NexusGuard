@@ -813,6 +813,24 @@ class MessageFeedback(Base):
     __table_args__ = (UniqueConstraint("user_id", "message_id"),)
 
 
+class EnterpriseMemory(Base):
+    """Persistent Hindsight / Vectorize memory store for organizational decisions, user preferences, and learned feedback."""
+    __tablename__ = "enterprise_memories"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("mem_"))
+    company_id: Mapped[str] = mapped_column(ForeignKey("companies.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    bank_id: Mapped[str] = mapped_column(String(80), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(String(60), default="decision", index=True)  # engineering_decision, user_preference, organizational_policy, workflow_decision, correction
+    clearance: Mapped[str] = mapped_column(String(20), default="INTERNAL", index=True)
+    department: Mapped[str] = mapped_column(String(120), default="*", index=True)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    hindsight_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 Index("ix_audit_company_ts", AuditLog.company_id, AuditLog.ts)
 Index("ix_users_company_dept", User.company_id, User.department_id)
 Index("ix_users_manager", User.manager_id)
@@ -824,3 +842,5 @@ Index("ix_leave_user_status", LeaveRequest.user_id, LeaveRequest.status)
 Index("ix_tickets_user_status", ITTicket.user_id, ITTicket.status)
 Index("ix_wf_company_created", WorkflowExecution.company_id, WorkflowExecution.created_at)
 Index("ix_docs_company_status", Document.company_id, Document.status)
+Index("ix_memory_company_bank", EnterpriseMemory.company_id, EnterpriseMemory.bank_id)
+Index("ix_memory_company_category", EnterpriseMemory.company_id, EnterpriseMemory.category)

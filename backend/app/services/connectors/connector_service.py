@@ -209,8 +209,10 @@ class ConnectorService:
         if not c:
             raise ValueError(f"Connector '{connector_id}' not found.")
 
+        from .permission_engine import normalize_agent_access
+
         if "agent_access" in payload:
-            c.agent_access = payload["agent_access"]
+            c.agent_access = normalize_agent_access(payload["agent_access"])
         if "resources" in payload:
             c.resources = payload["resources"]
         c.updated_at = datetime.now(timezone.utc)
@@ -220,6 +222,7 @@ class ConnectorService:
             "status": "ok",
             "message": f"Updated permission matrix for {c.name}.",
             "agent_access": c.agent_access,
+            "resources": c.resources,
         }
 
     @staticmethod

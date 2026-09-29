@@ -230,11 +230,29 @@ def detect_flags(text: str) -> dict:
         r"|\bleave request\b|\bneed\s+(some\s+)?leave\b",
         t
     ))
+    # Distinguish drafting/sending outbound emails vs searching existing emails in Outlook
+    is_email_draft_send = bool(
+        re.search(r"\b(draft|send|compose|write (an? )?email)\b", t)
+        or re.search(r"\bemail\s+to\b", t)
+        or (re.search(r"\b(email|e-mail|mail)\b", t) and re.search(r"\bdraft\b", t))
+    )
+    is_email_search = bool(
+        not is_email_draft_send
+        and (
+            re.search(r"\b(search|find|show|get|read|check|latest|recent|look up|any|view)\b.{0,30}\b(emails?|e-mails?|messages?|inbox|mailbox)\b", t)
+            or re.search(r"\b(emails?|e-mails?)\b.{0,30}\b(received|inbox|mailbox)\b", t)
+            or re.search(r"\b(emails?|e-mails?)\b.{0,20}\b(from|about|regarding)\b", t)
+        )
+    )
+
     return {
         "leave_balance": has_leave_balance,
         "leave_submit": has_leave_submit and not (has_leave_balance and not re.search(r"\b(apply|submit|book|take|request)\b", t)),
-        "email": bool(re.search(r"\b(email|e-mail|mail|message|write to|send)\b", t) and
-                      re.search(r"\b(email|e-mail|mail)\b|\bdraft\b", t)),
+        "email_search": is_email_search,
+        "email": is_email_draft_send,
+        "jira": bool(re.search(r"\bjira\b", t) or (re.search(r"\b(issues?|tickets?)\b", t) and re.search(r"\b(jira|backlog|sprint|nova|sec|devops)\b", t))),
+        "teams": bool(re.search(r"\bteams\b|#security-eng|#general|#backend-platform|\bteams channel\b", t)),
+        "entra": bool(re.search(r"\bentra\b|\bdirectory\b|\bmfa status\b|\bconditional access\b", t)),
         "ticket": bool(re.search(r"\b(ticket|helpdesk|help desk|it support|incident)\b", t) or
                        re.search(r"\b(laptop|vpn|wifi|wi-fi|printer|monitor|password reset)\b.*\b(broken|not working|issue|"
                                  r"problem|fix|reset)\b", t)),
