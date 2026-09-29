@@ -73,13 +73,17 @@ class JiraProvider:
             if priority and meta.get("priority", "").lower() != priority.lower():
                 continue
             if query:
-                q = query.lower()
-                matched = (
-                    q in item.title.lower()
-                    or q in item.content.lower()
-                    or q in item.external_id.lower()
-                    or any(q in c.lower() for c in meta.get("components", []))
-                )
+                q = query.lower().strip()
+                terms = [t for t in q.replace("(", " ").replace(")", " ").split() if t not in ("or", "and", "the", "a", "in", "for", "to", "search", "jira", "issues", "tickets") and len(t) > 1]
+                if terms:
+                    matched = (
+                        q in item.title.lower()
+                        or q in item.content.lower()
+                        or q in item.external_id.lower()
+                        or any(t in item.title.lower() or t in item.content.lower() or t in item.external_id.lower() or any(t in c.lower() for c in meta.get("components", [])) for t in terms)
+                    )
+                else:
+                    matched = True
                 if not matched:
                     continue
 

@@ -586,12 +586,16 @@ def project_agent(run: Runner, u: Understanding) -> AgentReply:
         if "unauthorized" in low:
             proj = "UNAUTHORIZED"
         else:
-            m_proj = re.search(r"\b(?:project|in|from)\s+([a-zA-Z0-9_-]+)\b", low)
+            clean_text = re.sub(r"\(.*?\)", " ", low)
+            m_proj = re.search(r"\b(?:project|in|from)\s+([a-zA-Z0-9_-]+)\b", clean_text)
             if m_proj and m_proj.group(1).upper() not in ("JIRA", "MY", "AN", "THE", "ALL"):
                 proj = m_proj.group(1).upper()
             else:
-                proj = "SEC" if re.search(r"\b(sec|security)\b", low) else "DEVOPS" if re.search(r"\bdevops\b", low) else "NOVA"
-        q = re.sub(r"\b(show|find|search|list|get|my|jira|issues?|tickets?|in|project|from|an|unauthorized|for|about|with|on)\b", " ", low).strip()
+                proj = "SEC" if re.search(r"\b(sec|security)\b", clean_text) else "DEVOPS" if re.search(r"\bdevops\b", clean_text) else "NOVA"
+        q = re.sub(r"\b(show|find|search|list|get|my|jira|issues?|tickets?|in|project|from|an|unauthorized|for|about|with|on|or|and)\b", " ", low).strip()
+        if proj:
+            q = re.sub(rf"\b{re.escape(proj.lower())}\b", " ", q).strip()
+        q = re.sub(r"[^\w\s-]", " ", q).strip()
         out = run("search_jira_issues", query=q, project=proj)
         if out.status == "denied":
             return AgentReply("Project Agent", f"🔒 **Access denied.** {out.summary} The attempt was logged.")
