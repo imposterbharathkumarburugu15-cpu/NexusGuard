@@ -590,8 +590,8 @@ def project_agent(run: Runner, u: Understanding) -> AgentReply:
             if m_proj and m_proj.group(1).upper() not in ("JIRA", "MY", "AN", "THE", "ALL"):
                 proj = m_proj.group(1).upper()
             else:
-                proj = "SEC" if "sec" in low else "DEVOPS" if "devops" in low else "NOVA"
-        q = re.sub(r"\b(show|find|search|list|get|my|jira|issues?|tickets?|in|project|from|an|unauthorized)\b", " ", low).strip()
+                proj = "SEC" if re.search(r"\b(sec|security)\b", low) else "DEVOPS" if re.search(r"\bdevops\b", low) else "NOVA"
+        q = re.sub(r"\b(show|find|search|list|get|my|jira|issues?|tickets?|in|project|from|an|unauthorized|for|about|with|on)\b", " ", low).strip()
         out = run("search_jira_issues", query=q, project=proj)
         if out.status == "denied":
             return AgentReply("Project Agent", f"🔒 **Access denied.** {out.summary} The attempt was logged.")

@@ -722,6 +722,22 @@ def ensure_connectors_and_skills(db: DBSession) -> None:
                 metadata_json={"priority": "Critical", "status": "Blocker", "assignee": "Alex Chen", "sprint": "Sprint 44", "epic": "Platform Reliability", "components": ["database", "workers"]},
                 classification="INTERNAL", url="https://novatech.atlassian.net/browse/NOVA-412", author="DevOps Team"
             ),
+            ConnectorItem(
+                id="ci_jira_sec_101", company_id=NT, connector_id="conn_jira", provider="jira",
+                item_type="jira_issue", external_id="SEC-101",
+                title="SOC2 Type II Access Review and Security Audit Logging Compliance",
+                content="Remediate privileged access review findings, enforce cloud security baseline, and ensure immutable audit logging across all microservices.",
+                metadata_json={"priority": "High", "status": "In Progress", "assignee": "Priya Sharma", "reporter": "Compliance Lead", "sprint": "Continuous Security", "epic": "SOC2 Compliance", "components": ["iam", "audit-ledger", "security"]},
+                classification="INTERNAL", url="https://novatech.atlassian.net/browse/SEC-101", author="Compliance Lead"
+            ),
+            ConnectorItem(
+                id="ci_jira_sec_102", company_id=NT, connector_id="conn_jira", provider="jira",
+                item_type="jira_issue", external_id="SEC-102",
+                title="Automated Container Vulnerability and Secret Scanning",
+                content="Deploy CI/CD pipeline blocking gate for container images with critical security CVEs and exposed credentials.",
+                metadata_json={"priority": "Critical", "status": "Open", "assignee": "Arjun Nair", "reporter": "Security Ops", "sprint": "Continuous Security", "epic": "DevSecOps", "components": ["ci-cd", "container-registry", "security"]},
+                classification="INTERNAL", url="https://novatech.atlassian.net/browse/SEC-102", author="Security Ops"
+            ),
             # Teams Messages
             ConnectorItem(
                 id="ci_teams_01", company_id=NT, connector_id="conn_teams", provider="teams",
