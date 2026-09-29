@@ -46,13 +46,13 @@ class Settings(BaseSettings):
     company_timezone: str = "Asia/Kolkata"
     max_upload_bytes: int = 2_000_000
 
-    # SMTP Mail Server settings
+    # SMTP Mail Server settings (credentials loaded from environment)
     smtp_host: str = "evocation.in"
     smtp_port: int = 465
     smtp_user: str = "novasolutions@evocation.in"
-    smtp_password: str = "nova@123"
+    smtp_password: str = ""
     contact_recipient: str = "novasolutions@evocation.in"
-    admin_alert_email: str = "varshukarthik7@gmail.com"
+    admin_alert_email: str = "admin@novatech.demo"
 
     # Optional HTTPS Email API (bypasses Render/cloud free-tier outbound SMTP port restrictions)
     resend_api_key: str | None = None
