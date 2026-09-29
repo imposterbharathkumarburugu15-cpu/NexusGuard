@@ -184,6 +184,9 @@ TOOL_POLICIES: dict[str, dict] = {
     # Hindsight persistent memory tools
     "retain_memory":        {"permission": "workspace:use",     "risk": "LOW",    "confirm": False},
     "recall_memories":      {"permission": "workspace:use",     "risk": "LOW",    "confirm": False},
+    # Engineering Code Review Agent tools
+    "review_repository_code": {"permission": "repositories:read", "risk": "LOW",    "confirm": False},
+    "propose_code_fix":       {"permission": "repositories:read", "risk": "MEDIUM", "confirm": True},
 }
 # Friendly aliases used in docs/prompts (same implementation + policy).
 TOOL_ALIASES = {"create_ticket": "create_it_ticket", "get_employee_info": "get_employee", "search_tasks": "get_pending_tasks",

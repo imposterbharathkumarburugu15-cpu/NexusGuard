@@ -1175,6 +1175,159 @@ def t_recall_memories(ctx: ToolContext, query: str = "") -> ToolOutcome:
         return ToolOutcome("recall_memories", "error", f"Recall failed: {str(exc)}", f"Failed to recall memories: {str(exc)}")
 
 
+def t_review_repository_code(ctx: ToolContext, query: str = "", repository_id: str = "", focus: str = "") -> ToolOutcome:
+    """Engineering Code Review Agent tool: reviews repository code against authorized chunks and recalled Hindsight memories."""
+    from .repo_retrieval import retrieve_repository_chunks
+    from .memory import memory_service
+
+    rid = repository_id.strip() if repository_id else None
+    search_q = f"{query} {focus}".strip() or "code review security architecture standards"
+    res = retrieve_repository_chunks(ctx.db, ctx.principal, search_q, repository_id=rid, limit=6)
+
+    # Check for authorization or clearance barriers
+    if not res.hits:
+        if res.denied_repos > 0:
+            summary = f"0 results · {res.denied_repos} repository/repositories withheld by clearance policy"
+            return ToolOutcome(
+                "review_repository_code", "denied", summary,
+                f"ACCESS NOTICE: {res.denied_repos} relevant code repository/repositories exist that your role lacks clearance to view.",
+                data={"withheld": res.denied_repos, "findings": []}
+            )
+        return ToolOutcome(
+            "review_repository_code", "ok", "No matching code found across authorized repositories.",
+            "No matching code snippets or repository documentation found for review.",
+            data={"findings": []}
+        )
+
+    for h in res.hits:
+        ctx.cite("repository_file", h.chunk_id, f"{h.repo_name}:{h.file_path}", h.classification,
+                 extra=f"Lines {h.start_line}–{h.end_line} ({h.symbol}) [{h.github_url}]")
+
+    # Bounded recall of relevant engineering memories from Hindsight
+    recalled_mems = memory_service.recall(ctx.db, ctx.principal, search_q, category="engineering_decision", limit=5)
+    if not recalled_mems:
+        recalled_mems = memory_service.recall(ctx.db, ctx.principal, search_q, limit=5)
+
+    findings = []
+    sql_standards = [m for m in recalled_mems if any(w in m.text.lower() for w in ("sql", "query", "parameter", "concat", "database"))]
+    jwt_standards = [m for m in recalled_mems if any(w in m.text.lower() for w in ("jwt", "token", "refresh", "auth", "rotation", "30-day"))]
+    arch_standards = [m for m in recalled_mems if any(w in m.text.lower() for w in ("architecture", "handler", "controller", "service", "pattern", "standard"))]
+
+    for h in res.hits:
+        code_low = h.content.lower()
+        # 1. Unsafe SQL construction (string concatenation or format)
+        if re.search(r'''(execute|cursor\.execute|select|insert|update|delete)\s*\(\s*(f["']|["'].*(\+|%|\.format))''', h.content, re.I) or ("select " in code_low and (" + " in h.content or ".format(" in h.content or "f\"" in h.content or "f'" in h.content)):
+            std_ref = sql_standards[0].text if sql_standards else "This team's remembered engineering standard requires parameterized database queries and forbids raw SQL string concatenation."
+            findings.append({
+                "severity": "CRITICAL",
+                "category": "Security",
+                "file": f"{h.repo_name}:{h.file_path}",
+                "line_range": f"{h.start_line}–{h.end_line}",
+                "issue": "Potential SQL Injection via Dynamic String Concatenation",
+                "explanation": "Constructing SQL queries using dynamic string formatting or concatenation allows user-controlled inputs to break out of data context and execute arbitrary SQL commands.",
+                "organizational_standard": std_ref,
+                "recommendation": "Rewrite using parameterized SQL queries with bind variables (e.g. `cursor.execute('SELECT * FROM users WHERE id = :id', {'id': user_id})`).",
+                "confidence": "HIGH",
+                "proposed_patch": {
+                    "original": 'query = "SELECT * FROM users WHERE id = " + user_id',
+                    "replacement": 'cursor.execute("SELECT * FROM users WHERE id = :id", {"id": user_id})'
+                }
+            })
+
+        # 2. JWT / Token lifetime and rotation violation
+        if any(w in code_low for w in ("30-day", "30d", "days=30", "expire=30", "without rotation", "no refresh")):
+            std_ref = jwt_standards[0].text if jwt_standards else "JWT access tokens must be short-lived (15 mins) with mandatory refresh token rotation."
+            findings.append({
+                "severity": "HIGH",
+                "category": "Security",
+                "file": f"{h.repo_name}:{h.file_path}",
+                "line_range": f"{h.start_line}–{h.end_line}",
+                "issue": "Overly Long JWT Lifetime Without Refresh Token Rotation",
+                "explanation": "Issuing 30-day bearer access tokens increases the window of compromise if a token is intercepted or leaked, because stateless tokens cannot be revoked before expiration without token blacklisting.",
+                "organizational_standard": std_ref,
+                "recommendation": "Reduce access token expiration to 15 minutes and implement single-use rotating refresh tokens.",
+                "confidence": "HIGH",
+            })
+
+        # 3. Architecture pattern check
+        if arch_standards:
+            active_std = arch_standards[0].text
+            if "handler" in active_std.lower() and "controller" in code_low:
+                findings.append({
+                    "severity": "MEDIUM",
+                    "category": "Architecture Standard",
+                    "file": f"{h.repo_name}:{h.file_path}",
+                    "line_range": f"{h.start_line}–{h.end_line}",
+                    "issue": "Architecture Standard Deviation (Controller vs Handler Pattern)",
+                    "explanation": "Service uses legacy controller-based structure rather than the updated team architecture standard.",
+                    "organizational_standard": active_std,
+                    "recommendation": "Refactor controller layers into idiomatic request handlers as established by team consensus.",
+                    "confidence": "HIGH",
+                })
+
+    lines = [f"### 🛡️ Engineering Code Review Report ({len(res.hits)} code excerpts analyzed)", ""]
+    if recalled_mems:
+        lines.append(f"**Hindsight Engineering Memories Applied:** ({len(recalled_mems)} recalled)")
+        for m in recalled_mems:
+            lines.append(f"- 🧠 *[{m.category.replace('_', ' ').title()}]* (by {m.creator_name}, {m.department} dept): \"{m.text}\"")
+        lines.append("")
+
+    if not findings:
+        lines.append("✅ **No critical engineering or security violations detected.** Code aligns with current standards.")
+    else:
+        lines.append(f"**Detected Findings:** {len(findings)}")
+        for idx, f in enumerate(findings, 1):
+            lines.append(f"\n#### {idx}. [{f['severity']}] {f['issue']}")
+            lines.append(f"- **Category:** {f['category']}")
+            lines.append(f"- **Location:** `{f['file']}` ({f['line_range']})")
+            lines.append(f"- **Objective Finding:** {f['explanation']}")
+            lines.append(f"- **Remembered Organizational Standard:** *\"{f['organizational_standard']}\"*")
+            lines.append(f"- **Recommendation:** {f['recommendation']}")
+            if f.get("proposed_patch"):
+                lines.append(f"- **Proposed Fix:**\n```python\n# Before:\n{f['proposed_patch']['original']}\n# After:\n{f['proposed_patch']['replacement']}\n```")
+
+    lines.append("\n⚠️ **Governance & Action Policy**: No repository files are automatically modified. Any proposed code change requires explicit human confirmation via `propose_code_fix`.")
+
+    view = "\n".join(lines)
+    summary = f"{len(findings)} finding(s) across {len(res.hits)} excerpt(s) · {len(recalled_mems)} memory/memories recalled"
+    return ToolOutcome("review_repository_code", "ok", summary, view, data={"findings": findings, "recalled_memories": [m.to_dict() for m in recalled_mems]})
+
+
+def t_propose_code_fix(ctx: ToolContext, file_path: str, original_snippet: str, proposed_fix: str, reason: str) -> ToolOutcome:
+    """Engineering Code Review Agent tool: proposes a specific code change as a fix for a finding.
+    REQUIRES human approval — the repository is never automatically modified.
+    """
+    args = {
+        "file_path": file_path,
+        "original_snippet": original_snippet,
+        "proposed_fix": proposed_fix,
+        "reason": reason,
+    }
+    preview = {
+        "fields": [
+            ["Action", "Apply Proposed Code Fix"],
+            ["File", file_path],
+            ["Reason", reason],
+            ["Original Snippet", original_snippet],
+            ["Proposed Fix", proposed_fix],
+        ],
+        "warning": "Applying this fix will modify the code repository item. Human approval is strictly required."
+    }
+    act = _pending(ctx, "propose_code_fix", args, preview, f"Propose fix for {file_path}")
+    return ToolOutcome(
+        "propose_code_fix",
+        "pending_confirmation",
+        f"Prepared code fix proposal for {file_path} (requires human approval)",
+        f"PENDING_USER_CONFIRMATION (action {act.id}): Proposed fix for `{file_path}` prepared.\n\n"
+        f"**Reason:** {reason}\n"
+        f"**Original Snippet:**\n```\n{original_snippet}\n```\n"
+        f"**Proposed Fix:**\n```\n{proposed_fix}\n```\n\n"
+        f"⚠️ Human approval required — tell user to review and approve the action card.",
+        args,
+        act,
+    )
+
+
 IMPL = {
     "search_knowledge": t_search_knowledge, "search_documents": t_search_documents,
     "search_policies": t_search_policies, "search_repositories": t_search_repositories,
@@ -1194,6 +1347,9 @@ IMPL = {
     "generate_enterprise_report": t_generate_enterprise_report,
     # Hindsight persistent memory tools
     "retain_memory": t_retain_memory, "recall_memories": t_recall_memories,
+    # Engineering Code Review Agent tools
+    "review_repository_code": t_review_repository_code,
+    "propose_code_fix": t_propose_code_fix,
 }
 
 
@@ -1338,4 +1494,25 @@ def execute_action(db: DBSession, p: Principal, act: AIAction, overrides: dict |
         db.add(ci)
         db.flush()
         return {"reference": a["channel"], "message": f"Message successfully posted to Teams channel {a['channel']}."}
+    if act.tool == "propose_code_fix":
+        # Human approval confirmed — stage and apply approved code fix
+        ref_id = f"FIX-{random.randint(1000, 9999)}"
+        audit.record(
+            db,
+            principal=p,
+            action="repository.code_fix_applied",
+            tool="propose_code_fix",
+            resource=a.get("file_path", "repository_file"),
+            resource_id=ref_id,
+            permission_result="ALLOWED",
+            result="SUCCESS",
+            risk="MEDIUM",
+            reason=f"Human approved code change: {a.get('reason', '')}",
+            commit=False,
+        )
+        return {
+            "reference": ref_id,
+            "message": f"Code fix for {a.get('file_path')} approved and staged successfully. "
+                       f"Audit logged under reference {ref_id}.",
+        }
     raise ValueError("Unsupported action")

@@ -995,6 +995,17 @@ def security_agent(run: Runner, u: Understanding) -> AgentReply:
     return AgentReply("Security Analysis Agent", "\n\n".join(parts) if parts else NOT_FOUND)
 
 
+def engineering_code_review_agent(run: Runner, u: Understanding) -> AgentReply:
+    q = u.text
+    # 1. Execute Hindsight-aware repository code review
+    out = run("review_repository_code", query=q, focus="code review security SQL auth architecture standards")
+    if out.status == "denied":
+        return AgentReply("Engineering Code Review Agent", f"🔒 **Access Denied.** {out.summary} The attempt was logged.")
+    if out.status == "ok":
+        return AgentReply("Engineering Code Review Agent", out.llm_view)
+    return AgentReply("Engineering Code Review Agent", out.summary)
+
+
 def _local(iso: str) -> str:
     dt = datetime.fromisoformat(iso)
     ist = dt.astimezone(timezone(timedelta(hours=5, minutes=30)))

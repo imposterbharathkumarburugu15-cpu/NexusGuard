@@ -73,6 +73,7 @@ const CANONICAL_AGENTS = [
   "Workflow Agent",
   "Productivity Agent",
   "Security Analysis Agent",
+  "Engineering Code Review Agent",
 ];
 
 export default function ConnectorsPage() {

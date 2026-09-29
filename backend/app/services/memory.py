@@ -430,6 +430,20 @@ class HindsightMemoryService:
                     if has_topic_match and (rec.category == "correction" or "changed" in rec.content.lower()):
                         score += 0.30
 
+                    # Semantic code-review boosts (SQL, Auth, Architecture) only when query relates to code/standards/review
+                    q_low = query.lower()
+                    rec_low = rec.content.lower()
+                    is_code_context = any(w in q_low for w in ("code", "review", "repo", "repository", "standards", "pr", "diff", "snippet"))
+                    if is_code_context and not any(w in q_low for w in ("jira", "ticket", "leave", "incident")):
+                        if rec.category == "engineering_decision" or "team standard" in rec_low or "team decision" in rec_low:
+                            score += 0.15
+                        if any(w in q_low for w in ("select", "insert", "update", "delete", "where", "from", "sql", "cursor", "database", "query")) and any(w in rec_low for w in ("sql", "parameter", "concat", "interpolation", "database")):
+                            score += 0.35
+                        if any(w in q_low for w in ("jwt", "auth", "token", "exp", "bearer", "session", "password")) and any(w in rec_low for w in ("jwt", "token", "rs256", "rotation", "auth")):
+                            score += 0.35
+                        if any(w in q_low for w in ("architecture", "handler", "controller", "service layer", "mvc", "pattern")) and any(w in rec_low for w in ("architecture", "handler", "controller", "service")):
+                            score += 0.35
+
                 if score >= min_score or not query.strip():
                     recalled_items.append(
                         MemoryItem(

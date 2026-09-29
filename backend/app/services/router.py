@@ -16,13 +16,14 @@ from .nlp import detect_flags, parse_date
 from .retrieval import DEPT_WORDS
 
 AGENTS = ["Knowledge Agent", "HR Agent", "IT Agent", "Project Agent", "Document Agent", "Analytics Agent",
-          "Workflow Agent", "Productivity Agent", "Security Analysis Agent"]
+          "Workflow Agent", "Productivity Agent", "Security Analysis Agent", "Engineering Code Review Agent"]
 
 QUESTION_TYPES = {
     "knowledge": "Knowledge question", "employee": "Employee question", "analytics": "Analytics question",
     "document": "Document question", "workflow": "Workflow request", "multi_step": "Multi-step request",
     "restricted": "Restricted-data request", "general": "General", "productivity": "Productivity request",
     "project": "Project question", "security": "Security & Connector question",
+    "code_review": "Code review & engineering standards",
 }
 
 _R = lambda p: re.compile(p, re.I)
@@ -207,6 +208,14 @@ def understand(db, principal, text: str) -> Understanding:
     if f.get("teams") or f.get("entra") or re.search(r"\b(vulnerabilit|cwe|security (analysis|scan|issue|posture)|scan vulnerabilities|teams discussion)\b", low):
         add("Security Analysis Agent")
 
+    # --- Engineering Code Review --------------------------------------------------------------
+    is_code_review = bool(
+        re.search(r"\b(review (this |the )?(code|repo|repository|service|pull request|pr)|code review|sql injection|parameterized quer(y|ies)|review this|review repository|review pr)\b", low)
+        or (re.search(r"\b(review|inspect|check)\b", low) and any(w in low for w in ("repo", "repository", "code", "service", "sql", "controller", "handler", "query")))
+    )
+    if is_code_review:
+        add("Engineering Code Review Agent")
+
     # --- Analytics --------------------------------------------------------------------------
     data_view = bool(re.search(r"\b(budgets?|pipeline|expenses|purchase orders|opportunities|headcount|contracts)\b", low)
                      and (u_depts_hint(low) or re.search(r"\b(show|give|what is|what's|list)\b", low))
@@ -250,6 +259,8 @@ def understand(db, principal, text: str) -> Understanding:
         u.qtype = "multi_step"
     elif "Security Analysis Agent" in agents:
         u.qtype = "security"
+    elif "Engineering Code Review Agent" in agents:
+        u.qtype = "code_review"
     elif "Workflow Agent" in agents:
         u.qtype = "workflow"
     elif "Analytics Agent" in agents:

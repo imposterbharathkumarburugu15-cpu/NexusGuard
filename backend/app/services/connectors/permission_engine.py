@@ -47,10 +47,11 @@ CANONICAL_AGENTS = [
     "Security Analysis Agent",
     "Document Agent",
     "Analytics Agent",
+    "Engineering Code Review Agent",
 ]
 
 LEGACY_AGENT_MAP = {
-    "Engineering Agent": "Project Agent",
+    "Engineering Agent": "Engineering Code Review Agent",
     "Security Agent": "Security Analysis Agent",
     "Executive Agent": "Productivity Agent",
     "Guest Agent": "Knowledge Agent",

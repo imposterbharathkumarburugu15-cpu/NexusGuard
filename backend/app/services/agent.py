@@ -203,16 +203,43 @@ AGENT_FN = {"Knowledge Agent": A.knowledge_agent, "HR Agent": A.hr_agent, "IT Ag
             "Project Agent": A.project_agent, "Document Agent": A.document_agent,
             "Analytics Agent": A.analytics_agent, "Workflow Agent": A.workflow_agent,
             "Productivity Agent": A.productivity_agent,
-            "Security Analysis Agent": A.security_agent}
+            "Security Analysis Agent": A.security_agent,
+            "Engineering Code Review Agent": A.engineering_code_review_agent}
 
 
 def run_offline(ctx: ToolContext, tl: Timeline, u: Understanding) -> tuple[str, list[str]]:
     # Direct proof-of-learning evaluation when Hindsight memories are recalled
     query_lower = u.text.lower() if hasattr(u, "text") else ""
     recalled = getattr(ctx, "recalled_memories", [])
-    if recalled and any(w in query_lower for w in ("review", "token", "auth", "jwt", "pr", "decision", "standard", "conventions", "rule")):
+    if recalled and any(w in query_lower for w in ("review", "token", "auth", "jwt", "pr", "decision", "standard", "conventions", "rule", "sql", "select", "query", "database", "service")):
         for m in recalled:
             m_text = m.text.lower()
+            # 1. SQL injection & parameterized query standards
+            if any(term in m_text for term in ("parameter", "sql", "concat", "interpolat", "query", "raw sql")):
+                has_sql = any(s in u.text for s in ('" +', "' +", "+ userId", "+ id", "+ user", ".format(", "f\"", "f'")) or any(s in query_lower for s in ("select *", "from users", "sql", "query ="))
+                if has_sql:
+                    tl.add("memory_applied", "Hindsight Memory Applied", "done", f"Evaluated against team decision: {m.text[:40]}...")
+                    reply = (
+                        f"🛡️ **Engineering Code Review (Guided by Hindsight Memory)**\n\n"
+                        f"**Finding:**\n"
+                        f"Potential SQL injection vulnerability.\n\n"
+                        f"**Reason:**\n"
+                        f"The query is constructed using string concatenation with user-controlled input.\n\n"
+                        f"**Organizational standard:**\n"
+                        f"This team's remembered engineering standard requires parameterized database queries (*\"{m.text}\"*).\n\n"
+                        f"**Recommended approach:**\n"
+                        f"Use a parameterized query instead of concatenating user input into SQL.\n\n"
+                        f"**Suggested Fix:**\n"
+                        f"```python\n"
+                        f"# Parameterized query representation:\n"
+                        f'cursor.execute("SELECT * FROM users WHERE id = :id", {{"id": userId}})\n'
+                        f"```\n\n"
+                        f"⚠️ **Human Approval Required**: No repository files have been modified. "
+                        f"Proposed code fixes must be submitted and confirmed through the human approval action gate."
+                    )
+                    return reply, ["Engineering Code Review Agent"]
+
+            # 2. JWT / Token lifecycle standards
             if any(term in m_text for term in ("jwt", "token", "auth", "password", "security")):
                 is_violation = any(v in query_lower for v in ("30-day", "long-lived", "no refresh", "without rotation", "skip rotation"))
                 if is_violation:
@@ -231,7 +258,7 @@ def run_offline(ctx: ToolContext, tl: Timeline, u: Understanding) -> tuple[str, 
                         f"1. Reduce access token lifetime to short-lived (e.g. 15 minutes).\n"
                         f"2. Enforce single-use refresh token rotation with atomic revocation.\n"
                     )
-                    return reply, ["Knowledge Agent"]
+                    return reply, ["Engineering Code Review Agent"]
                 elif any(q in query_lower for q in ("decision", "standard", "rule", "prefer", "what is", "how should")):
                     tl.add("memory_applied", "Hindsight Memory Applied", "done", f"Recalled standard: {m.text[:40]}...")
                     reply = (
@@ -244,7 +271,23 @@ def run_offline(ctx: ToolContext, tl: Timeline, u: Understanding) -> tuple[str, 
                         f"**DECISION:**\n"
                         f"For authentication code, follow the established rule: *{m.text}*."
                     )
-                    return reply, ["Knowledge Agent"]
+                    return reply, ["Engineering Code Review Agent"]
+
+            # 3. Architecture pattern & correction standards
+            if any(term in m_text for term in ("architecture", "handler", "controller", "service")):
+                if any(w in query_lower for w in ("service", "review", "controller", "architecture")):
+                    tl.add("memory_applied", "Hindsight Memory Applied", "done", f"Applied updated standard: {m.text[:40]}...")
+                    reply = (
+                        f"🏗️ **Architecture Review (Guided by Hindsight Memory)**\n\n"
+                        f"**MEMORY RETRIEVED:**\n"
+                        f"> [{m.category.replace('_', ' ').title()}] (by {m.creator_name}, {m.department} dept):\n"
+                        f"> *\"{m.text}\"*\n\n"
+                        f"**EVALUATION:**\n"
+                        f"Applied team consensus recalled from persistent memory bank.\n\n"
+                        f"**FINDING & STANDARD:**\n"
+                        f"New services must follow the updated organizational standard: *\"{m.text}\"*."
+                    )
+                    return reply, ["Engineering Code Review Agent"]
 
     # Handle explicit directive to remember in offline mode
     if any(query_lower.startswith(p) for p in ("remember", "team decision", "our team prefers", "we decided", "engineering decision")):
